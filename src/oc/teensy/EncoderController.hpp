@@ -3,25 +3,33 @@
 #include <array>
 #include <memory>
 
-#include <EncoderTool.h>
-
 #include <oc/common/EncoderDef.hpp>
 #include <oc/core/input/EncoderLogic.hpp>
 #include <oc/hal/IEncoderController.hpp>
+#include <oc/hal/IEncoderHardware.hpp>
 
 namespace oc::teensy {
 
 using EncoderDef = common::EncoderDef;
 
 /**
- * @brief Teensy encoder controller using EncoderTool library (ISR-based)
+ * @brief Context passed to ISR callback for encoder identification
+ */
+template <size_t N>
+struct EncoderContext;
+
+/**
+ * @brief Teensy encoder controller using hardware abstraction
  *
  * @tparam N Number of encoders to manage
  */
 template <size_t N>
 class EncoderController : public hal::IEncoderController {
 public:
-    explicit EncoderController(const std::array<EncoderDef, N>& defs) : defs_(defs) {
+    EncoderController(
+        const std::array<EncoderDef, N>& defs,
+        hal::IEncoderHardwareFactory& factory)
+        : defs_(defs), factory_(factory) {
         for (size_t i = 0; i < N; ++i) {
             core::input::EncoderConfig cfg{
                 .id = defs[i].id,
@@ -31,6 +39,7 @@ public:
                 .invertDirection = defs[i].invertDirection
             };
             encoders_logic_[i] = std::make_unique<core::input::EncoderLogic>(cfg);
+            contexts_[i] = {this, i};
         }
     }
 
@@ -39,11 +48,9 @@ public:
 
         for (size_t i = 0; i < N; ++i) {
             const auto& def = defs_[i];
-            encoders_hw_[i] = std::make_unique<EncoderTool::Encoder>();
-            encoders_hw_[i]->begin(def.pinA, def.pinB, EncoderTool::CountMode::full);
-            encoders_hw_[i]->attachCallback([this, i](int, int delta) {
-                encoders_logic_[i]->processDelta(delta);
-            });
+            encoders_hw_[i] = factory_.create(def.pinA, def.pinB);
+            encoders_hw_[i]->setDeltaCallback(onDelta, &contexts_[i]);
+            encoders_hw_[i]->init();
         }
         initialized_ = true;
         return true;
@@ -97,6 +104,16 @@ public:
     void setCallback(hal::EncoderCallback cb) override { callback_ = cb; }
 
 private:
+    struct Context {
+        EncoderController* controller;
+        size_t index;
+    };
+
+    static void onDelta(void* ctx, int32_t delta) {
+        auto* c = static_cast<Context*>(ctx);
+        c->controller->encoders_logic_[c->index]->processDelta(delta);
+    }
+
     int findIndex(hal::EncoderID id) const {
         for (size_t i = 0; i < N; ++i) {
             if (defs_[i].id == id) return static_cast<int>(i);
@@ -105,7 +122,9 @@ private:
     }
 
     std::array<EncoderDef, N> defs_;
-    std::array<std::unique_ptr<EncoderTool::Encoder>, N> encoders_hw_;
+    hal::IEncoderHardwareFactory& factory_;
+    std::array<Context, N> contexts_;
+    std::array<std::unique_ptr<hal::IEncoderHardware>, N> encoders_hw_;
     std::array<std::unique_ptr<core::input::EncoderLogic>, N> encoders_logic_;
     hal::EncoderCallback callback_;
     bool initialized_ = false;

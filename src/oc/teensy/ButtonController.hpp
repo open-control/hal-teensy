@@ -2,10 +2,9 @@
 
 #include <array>
 
-#include <Arduino.h>
-
 #include <oc/common/Types.hpp>
 #include <oc/common/ButtonDef.hpp>
+#include <oc/hal/IGpio.hpp>
 #include <oc/hal/IButtonController.hpp>
 #include <oc/hal/IMultiplexer.hpp>
 
@@ -18,36 +17,35 @@ public:
 
     ButtonController(
         const std::array<ButtonDef, N>& buttons,
+        hal::IGpio& gpio,
         hal::IMultiplexer* mux = nullptr,
         uint8_t debounceMs = 5)
-        : buttons_(buttons), mux_(mux), debounce_ms_(debounceMs) {
+        : buttons_(buttons), gpio_(gpio), mux_(mux), debounce_ms_(debounceMs) {
         states_.fill(false);
         last_change_.fill(0);
     }
 
     bool init() override {
         for (const auto& btn : buttons_) {
-            if (btn.pin.source == common::GpioPin::Source::MCU) {
-                pinMode(btn.pin.pin, INPUT_PULLUP);
+            if (btn.pin.source == hal::GpioPin::Source::MCU) {
+                gpio_.pinMode(btn.pin.pin, hal::PinMode::INPUT_PULLUP);
             }
         }
         initialized_ = true;
         return true;
     }
 
-    void update() override {
+    void update(uint32_t currentTimeMs) override {
         if (!initialized_) return;
-
-        uint32_t now = millis();
 
         for (size_t i = 0; i < N; ++i) {
             bool raw = readPin(buttons_[i]);
             bool pressed = buttons_[i].activeLow ? !raw : raw;
 
             if (pressed != states_[i]) {
-                if (now - last_change_[i] >= debounce_ms_) {
+                if (currentTimeMs - last_change_[i] >= debounce_ms_) {
                     states_[i] = pressed;
-                    last_change_[i] = now;
+                    last_change_[i] = currentTimeMs;
 
                     if (callback_) {
                         callback_(
@@ -71,8 +69,8 @@ public:
 
 private:
     bool readPin(const ButtonDef& btn) {
-        if (btn.pin.source == common::GpioPin::Source::MCU) {
-            return digitalRead(btn.pin.pin);
+        if (btn.pin.source == hal::GpioPin::Source::MCU) {
+            return gpio_.digitalRead(btn.pin.pin);
         } else {
             if (mux_) {
                 return mux_->readDigital(btn.pin.pin);
@@ -82,6 +80,7 @@ private:
     }
 
     std::array<ButtonDef, N> buttons_;
+    hal::IGpio& gpio_;
     hal::IMultiplexer* mux_;
     uint8_t debounce_ms_;
 

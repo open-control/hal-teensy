@@ -4,6 +4,7 @@
 
 #include <Arduino.h>
 
+#include <oc/hal/IGpio.hpp>
 #include <oc/hal/IMultiplexer.hpp>
 
 namespace oc::teensy {
@@ -25,14 +26,17 @@ public:
         bool signalPullup = true;
     };
 
-    explicit GenericMux(const Config& cfg) : config_(cfg) {}
+    GenericMux(const Config& cfg, hal::IGpio& gpio)
+        : config_(cfg), gpio_(gpio) {}
 
     bool init() override {
         for (uint8_t pin : config_.selectPins) {
-            pinMode(pin, OUTPUT);
-            digitalWrite(pin, LOW);
+            gpio_.pinMode(pin, hal::PinMode::OUTPUT);
+            gpio_.digitalWrite(pin, false);
         }
-        pinMode(config_.signalPin, config_.signalPullup ? INPUT_PULLUP : INPUT);
+        gpio_.pinMode(config_.signalPin,
+                      config_.signalPullup ? hal::PinMode::INPUT_PULLUP
+                                           : hal::PinMode::INPUT);
         current_channel_ = 0;
         initialized_ = true;
         return true;
@@ -45,26 +49,27 @@ public:
         if (channel == current_channel_) return;
 
         for (uint8_t i = 0; i < NumPins; ++i) {
-            digitalWrite(config_.selectPins[i], (channel >> i) & 0x01);
+            gpio_.digitalWrite(config_.selectPins[i], (channel >> i) & 0x01);
         }
         current_channel_ = channel;
-        delayMicroseconds(config_.settleTimeUs);
+        ::delayMicroseconds(config_.settleTimeUs);  // Platform-native timing
     }
 
     bool readDigital(uint8_t channel) override {
         select(channel);
-        return digitalRead(config_.signalPin);
+        return gpio_.digitalRead(config_.signalPin);
     }
 
     uint16_t readAnalog(uint8_t channel) override {
         select(channel);
-        return analogRead(config_.signalPin);
+        return gpio_.analogRead(config_.signalPin);
     }
 
     bool supportsAnalog() const override { return true; }
 
 private:
     Config config_;
+    hal::IGpio& gpio_;
     uint8_t current_channel_ = 0;
     bool initialized_ = false;
 };
