@@ -1,6 +1,5 @@
 #pragma once
 
-#if __has_include(<ILI9341_T4.h>)
 
 #include <cstdint>
 #include <memory>
@@ -62,4 +61,3 @@ private:
 
 }  // namespace oc::teensy
 
-#endif

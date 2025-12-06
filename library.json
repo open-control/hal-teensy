@@ -1,19 +1,20 @@
 {
-  "name": "open-control-driver-teensy",
+  "name": "open-control-hal-teensy",
   "version": "0.1.0",
-  "description": "Teensy drivers for Open Control",
-  "keywords": ["open-control", "teensy", "drivers", "embedded"],
+  "description": "Teensy HAL drivers for Open Control",
+  "keywords": ["open-control", "teensy", "hal", "embedded"],
   "repository": {
     "type": "git",
-    "url": "https://github.com/open-control/driver-teensy.git"
+    "url": "https://github.com/open-control/hal-teensy.git"
   },
   "license": "MIT",
   "frameworks": "arduino",
   "platforms": ["teensy"],
   "dependencies": {
-    "open-control-framework": "https://github.com/open-control/framework.git",
-    "open-control-driver-common": "https://github.com/open-control/driver-common.git",
-    "open-control-driver-arduino": "https://github.com/open-control/driver-arduino.git"
+    "open-control": "https://github.com/open-control/framework.git",
+    "open-control-hal-common": "https://github.com/open-control/hal-common.git",
+    "EncoderTool": "https://github.com/luni64/EncoderTool",
+    "ILI9341_T4": "https://github.com/vindar/ILI9341_T4"
   },
   "build": {
     "includeDir": "src"
