@@ -11,14 +11,14 @@
 namespace oc::teensy {
 
 template <size_t N>
-class ButtonController : public hal::IButtonController {
+class ButtonController : public oc::hal::IButtonController {
 public:
     using ButtonDef = common::ButtonDef;
 
     ButtonController(
         const std::array<ButtonDef, N>& buttons,
-        hal::IGpio& gpio,
-        hal::IMultiplexer* mux = nullptr,
+        oc::hal::IGpio& gpio,
+        oc::hal::IMultiplexer* mux = nullptr,
         uint8_t debounceMs = 5)
         : buttons_(buttons), gpio_(gpio), mux_(mux), debounce_ms_(debounceMs) {
         states_.fill(false);
@@ -27,8 +27,8 @@ public:
 
     bool init() override {
         for (const auto& btn : buttons_) {
-            if (btn.pin.source == hal::GpioPin::Source::MCU) {
-                gpio_.pinMode(btn.pin.pin, hal::PinMode::INPUT_PULLUP);
+            if (btn.pin.source == oc::hal::GpioPin::Source::MCU) {
+                gpio_.pinMode(btn.pin.pin, oc::hal::PinMode::INPUT_PULLUP);
             }
         }
         initialized_ = true;
@@ -50,26 +50,26 @@ public:
                     if (callback_) {
                         callback_(
                             buttons_[i].id,
-                            pressed ? hal::ButtonEvent::PRESSED
-                                    : hal::ButtonEvent::RELEASED);
+                            pressed ? oc::hal::ButtonEvent::PRESSED
+                                    : oc::hal::ButtonEvent::RELEASED);
                     }
                 }
             }
         }
     }
 
-    bool isPressed(hal::ButtonID id) const override {
+    bool isPressed(oc::hal::ButtonID id) const override {
         for (size_t i = 0; i < N; ++i) {
             if (buttons_[i].id == id) return states_[i];
         }
         return false;
     }
 
-    void setCallback(hal::ButtonCallback cb) override { callback_ = cb; }
+    void setCallback(oc::hal::ButtonCallback cb) override { callback_ = cb; }
 
 private:
     bool readPin(const ButtonDef& btn) {
-        if (btn.pin.source == hal::GpioPin::Source::MCU) {
+        if (btn.pin.source == oc::hal::GpioPin::Source::MCU) {
             return gpio_.digitalRead(btn.pin.pin);
         } else {
             if (mux_) {
@@ -80,13 +80,13 @@ private:
     }
 
     std::array<ButtonDef, N> buttons_;
-    hal::IGpio& gpio_;
-    hal::IMultiplexer* mux_;
+    oc::hal::IGpio& gpio_;
+    oc::hal::IMultiplexer* mux_;
     uint8_t debounce_ms_;
 
     std::array<bool, N> states_;
     std::array<uint32_t, N> last_change_;
-    hal::ButtonCallback callback_;
+    oc::hal::ButtonCallback callback_;
     bool initialized_ = false;
 };
 
