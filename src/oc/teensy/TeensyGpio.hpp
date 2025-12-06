@@ -6,20 +6,17 @@
 
 namespace oc::teensy {
 
-/**
- * @brief Teensy GPIO implementation using Arduino API
- */
-class TeensyGpio : public hal::IGpio {
+class TeensyGpio : public oc::hal::IGpio {
 public:
-    void pinMode(uint8_t pin, hal::PinMode mode) override {
+    void pinMode(uint8_t pin, oc::hal::PinMode mode) override {
         switch (mode) {
-            case hal::PinMode::INPUT:
+            case oc::hal::PinMode::PIN_INPUT:
                 ::pinMode(pin, INPUT);
                 break;
-            case hal::PinMode::INPUT_PULLUP:
+            case oc::hal::PinMode::PIN_INPUT_PULLUP:
                 ::pinMode(pin, INPUT_PULLUP);
                 break;
-            case hal::PinMode::OUTPUT:
+            case oc::hal::PinMode::PIN_OUTPUT:
                 ::pinMode(pin, OUTPUT);
                 break;
         }
@@ -38,10 +35,6 @@ public:
     }
 };
 
-/**
- * @brief Global GPIO instance for convenience
- * @return Reference to singleton TeensyGpio
- */
 inline TeensyGpio& gpio() {
     static TeensyGpio instance;
     return instance;

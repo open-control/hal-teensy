@@ -31,12 +31,12 @@ public:
 
     bool init() override {
         for (uint8_t pin : config_.selectPins) {
-            gpio_.pinMode(pin, hal::PinMode::OUTPUT);
+            gpio_.pinMode(pin, hal::PinMode::PIN_OUTPUT);
             gpio_.digitalWrite(pin, false);
         }
         gpio_.pinMode(config_.signalPin,
-                      config_.signalPullup ? hal::PinMode::INPUT_PULLUP
-                                           : hal::PinMode::INPUT);
+                      config_.signalPullup ? hal::PinMode::PIN_INPUT_PULLUP
+                                           : hal::PinMode::PIN_INPUT);
         current_channel_ = 0;
         initialized_ = true;
         return true;

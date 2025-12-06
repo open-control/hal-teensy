@@ -28,7 +28,7 @@ public:
     bool init() override {
         for (const auto& btn : buttons_) {
             if (btn.pin.source == oc::hal::GpioPin::Source::MCU) {
-                gpio_.pinMode(btn.pin.pin, oc::hal::PinMode::INPUT_PULLUP);
+                gpio_.pinMode(btn.pin.pin, oc::hal::PinMode::PIN_INPUT_PULLUP);
             }
         }
         initialized_ = true;
