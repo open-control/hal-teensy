@@ -7,4 +7,3 @@ __pycache__/
 Thumbs.db
 compile_commands.json
 
-platformio_local*.ini
