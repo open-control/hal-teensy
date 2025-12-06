@@ -1,0 +1,27 @@
+{
+  "name": "open-control-driver-teensy",
+  "version": "0.1.0",
+  "description": "Teensy drivers for Open Control",
+  "keywords": ["open-control", "teensy", "drivers", "embedded"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/open-control/driver-teensy.git"
+  },
+  "authors": [
+    {
+      "name": "Open Control",
+      "url": "https://github.com/open-control"
+    }
+  ],
+  "license": "MIT",
+  "frameworks": "arduino",
+  "platforms": ["teensy"],
+  "dependencies": {
+    "open-control/framework": "*",
+    "open-control/driver-common": "*",
+    "open-control/driver-arduino": "*"
+  },
+  "build": {
+    "includeDir": "src"
+  }
+}
