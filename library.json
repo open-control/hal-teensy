@@ -7,19 +7,13 @@
     "type": "git",
     "url": "https://github.com/open-control/driver-teensy.git"
   },
-  "authors": [
-    {
-      "name": "Open Control",
-      "url": "https://github.com/open-control"
-    }
-  ],
   "license": "MIT",
   "frameworks": "arduino",
   "platforms": ["teensy"],
   "dependencies": {
-    "open-control/framework": "*",
-    "open-control/driver-common": "*",
-    "open-control/driver-arduino": "*"
+    "open-control-framework": "https://github.com/open-control/framework.git",
+    "open-control-driver-common": "https://github.com/open-control/driver-common.git",
+    "open-control-driver-arduino": "https://github.com/open-control/driver-arduino.git"
   },
   "build": {
     "includeDir": "src"
