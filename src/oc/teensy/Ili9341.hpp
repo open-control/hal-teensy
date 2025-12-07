@@ -11,10 +11,10 @@
 namespace oc::teensy {
 
 /**
- * ILI9341 display configuration.
- * 
- * Only framebuffer and diffBuffers are required.
- * All other fields have sensible defaults for Teensy 4.x.
+ * @brief Hardware configuration for ILI9341 display (constexpr-friendly)
+ *
+ * All fields have sensible defaults for Teensy 4.1.
+ * This struct contains only compile-time constants, no runtime pointers.
  */
 struct Ili9341Config {
     // ── Dimensions ──
@@ -41,18 +41,63 @@ struct Ili9341Config {
     float lateStartRatio = 0.3f;     ///< Late start optimization
     uint8_t refreshRate = 60;        ///< Target refresh Hz
 
-    // ── Buffers (REQUIRED, use DMAMEM) ──
-    uint16_t* framebuffer = nullptr;
-    uint8_t* diffBuffer1 = nullptr;
-    size_t diffBuffer1Size = 0;
-    uint8_t* diffBuffer2 = nullptr;
-    size_t diffBuffer2Size = 0;
+    /// Calculate framebuffer size in pixels
+    constexpr size_t framebufferSize() const { return width * height; }
+
+    /// Recommended diff buffer size for this resolution
+    constexpr size_t recommendedDiffSize() const {
+        // ~8KB for 320x240, scales with resolution
+        return (width * height) / 10;
+    }
 };
 
+/**
+ * @brief Runtime buffers for ILI9341 display
+ *
+ * All buffers must be in DMAMEM on Teensy 4.x.
+ * Sizes are auto-calculated from config if set to 0.
+ */
+struct Ili9341Buffers {
+    uint16_t* framebuffer = nullptr;  ///< Required: DMAMEM uint16_t[width*height]
+    uint8_t* diff1 = nullptr;         ///< Required: DMAMEM for diff algorithm
+    uint8_t* diff2 = nullptr;         ///< Optional: enables double-buffered diff
+    size_t diff1Size = 0;             ///< 0 = auto-calculate from config
+    size_t diff2Size = 0;             ///< 0 = auto-calculate from config
+};
+
+/**
+ * @brief ILI9341 display driver for Teensy 4.x
+ *
+ * Uses ILI9341_T4 library with DMA for high-performance rendering.
+ *
+ * @code
+ * // Config.hpp
+ * constexpr Ili9341Config DISPLAY_CONFIG = {
+ *     .width = 320, .height = 240,
+ *     .csPin = 28, .dcPin = 0, ...
+ * };
+ *
+ * // main.cpp
+ * display.emplace(DISPLAY_CONFIG, {
+ *     .framebuffer = Buffers::fb,
+ *     .diff1 = Buffers::diff1,
+ *     .diff2 = Buffers::diff2
+ * });
+ * display->init();
+ * @endcode
+ */
 class Ili9341 : public hal::IDisplayDriver {
 public:
-    explicit Ili9341(const Ili9341Config& config);
+    Ili9341(const Ili9341Config& config, const Ili9341Buffers& buffers);
     ~Ili9341() override = default;
+
+    // Moveable
+    Ili9341(Ili9341&&) noexcept = default;
+    Ili9341& operator=(Ili9341&&) noexcept = default;
+
+    // Non-copyable
+    Ili9341(const Ili9341&) = delete;
+    Ili9341& operator=(const Ili9341&) = delete;
 
     bool init() override;
     void flush(const void* buffer, const hal::Rect& area) override;
@@ -63,6 +108,9 @@ public:
 
 private:
     Ili9341Config config_;
+    Ili9341Buffers buffers_;
+    size_t effectiveDiff1Size_;
+    size_t effectiveDiff2Size_;
     std::optional<ILI9341_T4::ILI9341Driver> tft_;
     std::unique_ptr<ILI9341_T4::DiffBuff> diff1_;
     std::unique_ptr<ILI9341_T4::DiffBuff> diff2_;

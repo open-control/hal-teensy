@@ -2,17 +2,22 @@
 
 namespace oc::teensy {
 
-Ili9341::Ili9341(const Ili9341Config& config) : config_(config) {}
+Ili9341::Ili9341(const Ili9341Config& config, const Ili9341Buffers& buffers)
+    : config_(config)
+    , buffers_(buffers)
+    , effectiveDiff1Size_(buffers.diff1Size > 0 ? buffers.diff1Size : config.recommendedDiffSize())
+    , effectiveDiff2Size_(buffers.diff2Size > 0 ? buffers.diff2Size : config.recommendedDiffSize())
+{}
 
 bool Ili9341::init() {
     if (initialized_) return true;
 
-    if (!config_.framebuffer) return false;
-    if (!config_.diffBuffer1 || config_.diffBuffer1Size == 0) return false;
+    if (!buffers_.framebuffer) return false;
+    if (!buffers_.diff1) return false;
 
-    diff1_ = std::make_unique<ILI9341_T4::DiffBuff>(config_.diffBuffer1, config_.diffBuffer1Size);
-    if (config_.diffBuffer2 && config_.diffBuffer2Size > 0) {
-        diff2_ = std::make_unique<ILI9341_T4::DiffBuff>(config_.diffBuffer2, config_.diffBuffer2Size);
+    diff1_ = std::make_unique<ILI9341_T4::DiffBuff>(buffers_.diff1, effectiveDiff1Size_);
+    if (buffers_.diff2) {
+        diff2_ = std::make_unique<ILI9341_T4::DiffBuff>(buffers_.diff2, effectiveDiff2Size_);
     }
 
     tft_.emplace(config_.csPin, config_.dcPin, config_.sckPin,
@@ -22,7 +27,7 @@ bool Ili9341::init() {
 
     tft_->setRotation(config_.rotation);
     tft_->invertDisplay(config_.invertDisplay);
-    tft_->setFramebuffer(config_.framebuffer);
+    tft_->setFramebuffer(buffers_.framebuffer);
 
     if (diff2_) {
         tft_->setDiffBuffers(diff1_.get(), diff2_.get());
