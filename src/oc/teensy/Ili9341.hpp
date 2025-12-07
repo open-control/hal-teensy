@@ -39,7 +39,7 @@ struct Ili9341Config {
     uint16_t diffGap = 6;             ///< Diff algorithm gap
     uint16_t irqPriority = 128;       ///< DMA IRQ priority
     float lateStartRatio = 0.3f;     ///< Late start optimization
-    uint16_t refreshRate = 60;       ///< Target refresh Hz
+    uint32_t refreshRate = 60;       ///< Target refresh Hz
 
     /// Calculate framebuffer size in pixels
     constexpr size_t framebufferSize() const { return width * height; }
