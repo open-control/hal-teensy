@@ -22,24 +22,24 @@ struct Ili9341Config {
     uint16_t height = 240;
 
     // ── SPI Pins (Teensy 4.1 defaults) ──
-    uint8_t csPin   = 28;
-    uint8_t dcPin   = 0;
-    uint8_t rstPin  = 29;
-    uint8_t mosiPin = 26;
-    uint8_t sckPin  = 27;
-    uint8_t misoPin = 1;
+    uint16_t csPin   = 28;
+    uint16_t dcPin   = 0;
+    uint16_t rstPin  = 29;
+    uint16_t mosiPin = 26;
+    uint16_t sckPin  = 27;
+    uint16_t misoPin = 1;
     uint32_t spiSpeed = 40'000'000;  ///< 40 MHz recommended
 
     // ── Display ──
-    uint8_t rotation = 3;            ///< 0-3, landscape USB right = 3
+    uint16_t rotation = 3;            ///< 0-3, landscape USB right = 3
     bool invertDisplay = true;       ///< Color inversion
 
     // ── DMA tuning ──
-    uint8_t vsyncSpacing = 1;        ///< Frames between updates
-    uint8_t diffGap = 6;             ///< Diff algorithm gap
-    uint8_t irqPriority = 128;       ///< DMA IRQ priority
+    uint16_t vsyncSpacing = 1;        ///< Frames between updates
+    uint16_t diffGap = 6;             ///< Diff algorithm gap
+    uint16_t irqPriority = 128;       ///< DMA IRQ priority
     float lateStartRatio = 0.3f;     ///< Late start optimization
-    uint32_t refreshRate = 60;       ///< Target refresh Hz
+    uint16_t refreshRate = 60;       ///< Target refresh Hz
 
     /// Calculate framebuffer size in pixels
     constexpr size_t framebufferSize() const { return width * height; }
