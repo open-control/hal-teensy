@@ -2,14 +2,23 @@
 
 /**
  * @file Teensy.hpp
- * @brief Convenience header for Teensy HAL with factory helpers
+ * @brief Convenience header for Teensy HAL
  *
- * Provides simplified API for common use cases while maintaining
- * full flexibility through explicit injection when needed.
+ * Includes AppBuilder and all hardware drivers for easy setup.
+ *
+ * @code
+ * #include <oc/teensy/Teensy.hpp>
+ *
+ * app = oc::teensy::AppBuilder()
+ *     .midi()
+ *     .encoders(Config::ENCODERS)
+ *     .buttons(Config::BUTTONS);
+ * @endcode
  */
 
 #include <Arduino.h>
 
+#include <oc/teensy/AppBuilder.hpp>
 #include <oc/teensy/TeensyGpio.hpp>
 #include <oc/teensy/EncoderToolHardware.hpp>
 #include <oc/teensy/EncoderController.hpp>

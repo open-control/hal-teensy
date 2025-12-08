@@ -1,0 +1,42 @@
+# MIDI Studio Core - Minimal & Readable
+BasedOnStyle: Google
+Language: Cpp
+Standard: c++20
+
+# Indentation
+IndentWidth: 4
+AccessModifierOffset: -4
+
+# Line length
+ColumnLimit: 100
+
+# Compact code - allow short forms
+AllowShortBlocksOnASingleLine: Always
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortLoopsOnASingleLine: true
+CompactNamespaces: true
+PackConstructorInitializers: BinPack
+
+# Minimal empty lines
+EmptyLineBeforeAccessModifier: Never
+EmptyLineAfterAccessModifier: Never
+MaxEmptyLinesToKeep: 1
+
+# Pointers/refs left-aligned
+PointerAlignment: Left
+
+# Includes order: paired, C std, C++ STL, external libs, project
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^"[^/]*\.hpp"'
+    Priority: 1
+  - Regex: '^<c(assert|ctype|errno|float|limits|math|stdarg|stddef|stdint|stdio|stdlib|string|time)>'
+    Priority: 2
+  - Regex: '^<(algorithm|array|atomic|chrono|functional|map|memory|optional|string|string_view|vector|variant)>'
+    Priority: 3
+  - Regex: '^<'
+    Priority: 4
+  - Regex: '^"'
+    Priority: 5
