@@ -1,6 +1,6 @@
 {
   "name": "hal-teensy",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Teensy HAL drivers for Open Control",
   "keywords": ["open-control", "teensy", "hal", "embedded"],
   "repository": {
@@ -11,8 +11,8 @@
   "frameworks": "arduino",
   "platforms": ["teensy"],
   "dependencies": {
-    "open-control/framework": "^0.1.1",
-    "open-control/hal-common": "^0.1.1",
+    "open-control/framework": "^0.1.2",
+    "open-control/hal-common": "^0.1.2",
     "luni64/EncoderTool": "^3.2.0",
     "vindar/ILI9341_T4": "^1.6.0"
   },
