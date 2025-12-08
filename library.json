@@ -17,6 +17,10 @@
     "ILI9341_T4": "https://github.com/vindar/ILI9341_T4"
   },
   "build": {
-    "includeDir": "src"
+    "includeDir": "src",
+    "srcFilter": [
+      "+<**/*.cpp>",
+      "-<main.cpp>"
+    ]
   }
 }

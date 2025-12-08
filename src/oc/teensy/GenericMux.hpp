@@ -27,16 +27,20 @@ public:
     };
 
     GenericMux(const Config& cfg, hal::IGpio& gpio)
-        : config_(cfg), gpio_(gpio) {}
+        : config_(cfg), gpio_(&gpio) {}
+
+    // Default move operations (enabled by using pointer instead of reference)
+    GenericMux(GenericMux&&) = default;
+    GenericMux& operator=(GenericMux&&) = default;
 
     bool init() override {
         for (uint8_t pin : config_.selectPins) {
-            gpio_.pinMode(pin, hal::PinMode::PIN_OUTPUT);
-            gpio_.digitalWrite(pin, false);
+            gpio_->pinMode(pin, hal::PinMode::PIN_OUTPUT);
+            gpio_->digitalWrite(pin, false);
         }
-        gpio_.pinMode(config_.signalPin,
-                      config_.signalPullup ? hal::PinMode::PIN_INPUT_PULLUP
-                                           : hal::PinMode::PIN_INPUT);
+        gpio_->pinMode(config_.signalPin,
+                       config_.signalPullup ? hal::PinMode::PIN_INPUT_PULLUP
+                                            : hal::PinMode::PIN_INPUT);
         current_channel_ = 0;
         initialized_ = true;
         return true;
@@ -49,7 +53,7 @@ public:
         if (channel == current_channel_) return;
 
         for (uint8_t i = 0; i < NumPins; ++i) {
-            gpio_.digitalWrite(config_.selectPins[i], (channel >> i) & 0x01);
+            gpio_->digitalWrite(config_.selectPins[i], (channel >> i) & 0x01);
         }
         current_channel_ = channel;
         ::delayMicroseconds(config_.settleTimeUs);  // Platform-native timing
@@ -57,19 +61,19 @@ public:
 
     bool readDigital(uint8_t channel) override {
         select(channel);
-        return gpio_.digitalRead(config_.signalPin);
+        return gpio_->digitalRead(config_.signalPin);
     }
 
     uint16_t readAnalog(uint8_t channel) override {
         select(channel);
-        return gpio_.analogRead(config_.signalPin);
+        return gpio_->analogRead(config_.signalPin);
     }
 
     bool supportsAnalog() const override { return true; }
 
 private:
     Config config_;
-    hal::IGpio& gpio_;
+    hal::IGpio* gpio_ = nullptr;  // Pointer enables move semantics
     uint8_t current_channel_ = 0;
     bool initialized_ = false;
 };
