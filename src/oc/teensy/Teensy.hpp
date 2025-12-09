@@ -18,6 +18,10 @@
 
 #include <Arduino.h>
 
+// Log output must be defined BEFORE Log.hpp
+#include <oc/teensy/LogOutput.hpp>
+#include <oc/log/Log.hpp>
+
 #include <oc/teensy/AppBuilder.hpp>
 #include <oc/teensy/TeensyGpio.hpp>
 #include <oc/teensy/EncoderToolHardware.hpp>
