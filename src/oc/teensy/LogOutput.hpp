@@ -12,3 +12,6 @@
 
 // Serial.print handles all basic types: int, float, const char*, String, etc.
 #define OC_LOG_PRINT(x) Serial.print(x)
+
+// Direct timestamp - no callback needed, works immediately
+#define OC_LOG_TIMESTAMP() millis()
