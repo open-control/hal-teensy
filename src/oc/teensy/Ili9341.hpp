@@ -6,6 +6,7 @@
 
 #include <ILI9341_T4.h>
 
+#include <oc/core/Result.hpp>
 #include <oc/hal/IDisplayDriver.hpp>
 
 namespace oc::teensy {
@@ -99,7 +100,7 @@ public:
     Ili9341(const Ili9341&) = delete;
     Ili9341& operator=(const Ili9341&) = delete;
 
-    bool init() override;
+    core::Result<void> init() override;
     void flush(const void* buffer, const hal::Rect& area) override;
     uint16_t width() const override { return config_.width; }
     uint16_t height() const override { return config_.height; }

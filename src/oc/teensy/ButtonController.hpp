@@ -2,10 +2,11 @@
 
 #include <array>
 
-#include <oc/common/Types.hpp>
 #include <oc/common/ButtonDef.hpp>
-#include <oc/hal/IGpio.hpp>
+#include <oc/common/Types.hpp>
+#include <oc/core/Result.hpp>
 #include <oc/hal/IButtonController.hpp>
+#include <oc/hal/IGpio.hpp>
 #include <oc/hal/IMultiplexer.hpp>
 
 namespace oc::teensy {
@@ -25,14 +26,14 @@ public:
         last_change_.fill(0);
     }
 
-    bool init() override {
+    oc::core::Result<void> init() override {
         for (const auto& btn : buttons_) {
             if (btn.pin.source == oc::hal::GpioPin::Source::MCU) {
                 gpio_.pinMode(btn.pin.pin, oc::hal::PinMode::PIN_INPUT_PULLUP);
             }
         }
         initialized_ = true;
-        return true;
+        return oc::core::Result<void>::ok();
     }
 
     void update(uint32_t currentTimeMs) override {

@@ -4,6 +4,7 @@
 #include <memory>
 
 #include <oc/common/EncoderDef.hpp>
+#include <oc/core/Result.hpp>
 #include <oc/core/input/EncoderLogic.hpp>
 #include <oc/hal/IEncoderController.hpp>
 #include <oc/hal/IEncoderHardware.hpp>
@@ -43,17 +44,20 @@ public:
         }
     }
 
-    bool init() override {
-        if (initialized_) return true;
+    core::Result<void> init() override {
+        if (initialized_) return core::Result<void>::ok();
 
         for (size_t i = 0; i < N; ++i) {
             const auto& def = defs_[i];
             encoders_hw_[i] = factory_.create(def.pinA, def.pinB);
             encoders_hw_[i]->setDeltaCallback(onDelta, &contexts_[i]);
-            encoders_hw_[i]->init();
+            auto result = encoders_hw_[i]->init();
+            if (!result) {
+                return result;
+            }
         }
         initialized_ = true;
-        return true;
+        return core::Result<void>::ok();
     }
 
     void update() override {

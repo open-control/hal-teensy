@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <vector>
 
+#include <oc/core/Result.hpp>
 #include <oc/hal/IMidiTransport.hpp>
 
 namespace oc::teensy {
@@ -26,7 +27,7 @@ public:
     UsbMidi(const UsbMidi&) = delete;
     UsbMidi& operator=(const UsbMidi&) = delete;
 
-    bool init() override;
+    core::Result<void> init() override;
     void update() override;
 
     void sendCC(uint8_t channel, uint8_t cc, uint8_t value) override;

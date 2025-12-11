@@ -9,11 +9,18 @@ Ili9341::Ili9341(const Ili9341Config& config, const Ili9341Buffers& buffers)
     , effectiveDiff2Size_(buffers.diff2Size > 0 ? buffers.diff2Size : config.recommendedDiffSize())
 {}
 
-bool Ili9341::init() {
-    if (initialized_) return true;
+core::Result<void> Ili9341::init() {
+    using R = core::Result<void>;
+    using E = core::ErrorCode;
 
-    if (!buffers_.framebuffer) return false;
-    if (!buffers_.diff1) return false;
+    if (initialized_) return R::ok();
+
+    if (!buffers_.framebuffer) {
+        return R::err({E::INVALID_ARGUMENT, "framebuffer required"});
+    }
+    if (!buffers_.diff1) {
+        return R::err({E::INVALID_ARGUMENT, "diff1 buffer required"});
+    }
 
     diff1_ = std::make_unique<ILI9341_T4::DiffBuff>(buffers_.diff1, effectiveDiff1Size_);
     if (buffers_.diff2) {
@@ -23,7 +30,9 @@ bool Ili9341::init() {
     tft_.emplace(config_.csPin, config_.dcPin, config_.sckPin,
                  config_.mosiPin, config_.misoPin, config_.rstPin);
 
-    if (!tft_->begin(config_.spiSpeed)) return false;
+    if (!tft_->begin(config_.spiSpeed)) {
+        return R::err({E::HARDWARE_INIT_FAILED, "ILI9341 SPI begin failed"});
+    }
 
     tft_->setRotation(config_.rotation);
     tft_->invertDisplay(config_.invertDisplay);
@@ -42,7 +51,7 @@ bool Ili9341::init() {
     tft_->clear(0x0000);
 
     initialized_ = true;
-    return true;
+    return R::ok();
 }
 
 void Ili9341::flush(const void* buffer, const hal::Rect& /*area*/) {
