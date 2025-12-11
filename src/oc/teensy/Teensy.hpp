@@ -31,6 +31,14 @@
 
 namespace oc::teensy {
 
+/**
+ * @brief Default time provider using Arduino millis()
+ * Used by LVGL bridge and other time-dependent components.
+ */
+inline uint32_t defaultTimeProvider() {
+    return millis();
+}
+
 // =============================================================================
 // Auto-setup logging when OC_LOG is defined
 // =============================================================================
