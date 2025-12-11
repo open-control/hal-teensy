@@ -4,6 +4,7 @@
 
 #include <Arduino.h>
 
+#include <oc/core/Result.hpp>
 #include <oc/hal/IGpio.hpp>
 #include <oc/hal/IMultiplexer.hpp>
 
@@ -33,7 +34,7 @@ public:
     GenericMux(GenericMux&&) = default;
     GenericMux& operator=(GenericMux&&) = default;
 
-    bool init() override {
+    core::Result<void> init() override {
         for (uint8_t pin : config_.selectPins) {
             gpio_->pinMode(pin, hal::PinMode::PIN_OUTPUT);
             gpio_->digitalWrite(pin, false);
@@ -43,7 +44,7 @@ public:
                                             : hal::PinMode::PIN_INPUT);
         current_channel_ = 0;
         initialized_ = true;
-        return true;
+        return core::Result<void>::ok();
     }
 
     uint8_t channelCount() const override { return 1 << NumPins; }
