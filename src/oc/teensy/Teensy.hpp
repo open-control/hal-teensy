@@ -18,9 +18,9 @@
 
 #include <Arduino.h>
 
-// Log output must be defined BEFORE Log.hpp
-#include <oc/teensy/LogOutput.hpp>
+// Logging with dependency injection
 #include <oc/log/Log.hpp>
+#include <oc/teensy/TeensyOutput.hpp>
 
 #include <oc/teensy/AppBuilder.hpp>
 #include <oc/teensy/TeensyGpio.hpp>
@@ -38,26 +38,6 @@ namespace oc::teensy {
 inline uint32_t defaultTimeProvider() {
     return millis();
 }
-
-// =============================================================================
-// Auto-setup logging when OC_LOG is defined
-// =============================================================================
-// When -DOC_LOG is in build_flags:
-// - Serial wait is performed (see all boot logs)
-// - Timestamps work via OC_LOG_TIMESTAMP() macro (no callback needed)
-//
-// In release mode (no OC_LOG): zero overhead, instant boot
-// =============================================================================
-
-#ifdef OC_LOG
-namespace detail {
-    inline bool _autoSerialWait = [] {
-        // Wait for USB Serial connection (max 3s)
-        while (!Serial && millis() < 3000) {}
-        return true;
-    }();
-}  // namespace detail
-#endif
 
 /**
  * @brief Create an encoder controller with default factory
