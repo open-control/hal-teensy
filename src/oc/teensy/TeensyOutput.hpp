@@ -57,9 +57,9 @@ inline const oc::log::Output& serialOutput() {
  * Blocks until USB Serial is connected or timeout expires.
  * Useful for ensuring boot logs are visible.
  *
- * @param timeoutMs Maximum time to wait in milliseconds (default 3000)
+ * @param timeoutMs Maximum time to wait in milliseconds (default 5000)
  */
-inline void waitForSerial(uint32_t timeoutMs = 3000) {
+inline void waitForSerial(uint32_t timeoutMs = 5000) {
     while (!Serial && millis() < timeoutMs) {
         // Wait for USB Serial connection
     }
@@ -71,7 +71,7 @@ inline void waitForSerial(uint32_t timeoutMs = 3000) {
  * Convenience function that waits for Serial and configures log output.
  * Call this at the start of setup().
  *
- * @param waitTimeoutMs Timeout for Serial wait (default 3000ms)
+ * @param waitTimeoutMs Timeout for Serial wait (default 5000ms)
  *
  * @code
  * void setup() {
@@ -80,7 +80,7 @@ inline void waitForSerial(uint32_t timeoutMs = 3000) {
  * }
  * @endcode
  */
-inline void initLogging(uint32_t waitTimeoutMs = 3000) {
+inline void initLogging(uint32_t waitTimeoutMs = 5000) {
     waitForSerial(waitTimeoutMs);
     oc::log::setOutput(serialOutput());
 }
