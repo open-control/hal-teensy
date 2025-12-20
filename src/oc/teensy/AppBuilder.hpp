@@ -31,6 +31,7 @@
 #include <oc/teensy/EncoderToolHardware.hpp>
 #include <oc/teensy/TeensyGpio.hpp>
 #include <oc/teensy/UsbMidi.hpp>
+#include <oc/teensy/UsbSerial.hpp>
 
 #include <Arduino.h>
 
@@ -66,6 +67,19 @@ public:
      */
     AppBuilder& midi() {
         builder_.midi(std::make_unique<UsbMidi>());
+        return *this;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // SERIAL
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * @brief Enable USB Serial transport with COBS framing
+     * @return Reference to this builder for chaining
+     */
+    AppBuilder& serial() {
+        builder_.serial(std::make_unique<UsbSerial>());
         return *this;
     }
 
