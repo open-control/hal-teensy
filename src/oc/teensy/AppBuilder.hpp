@@ -32,6 +32,7 @@
 #include <oc/teensy/TeensyGpio.hpp>
 #include <oc/teensy/UsbMidi.hpp>
 #include <oc/teensy/UsbSerial.hpp>
+#include <oc/time/Time.hpp>
 
 #include <Arduino.h>
 
@@ -52,8 +53,13 @@ class AppBuilder {
 public:
     /**
      * @brief Construct builder with default Teensy time provider
+     *
+     * Registers the global oc::time provider and configures the app builder.
      */
     AppBuilder() {
+        // Register global time provider for oc::time::millis()
+        oc::time::setProvider(defaultTimeProvider);
+        // Configure app-level time provider
         builder_.timeProvider(defaultTimeProvider);
     }
 

@@ -9,8 +9,8 @@ namespace oc::teensy {
 /**
  * @brief EEPROM storage backend for Teensy
  *
- * Teensy 4.x has 4KB of emulated EEPROM.
- * Writes are immediate (no buffering needed).
+ * Teensy 4.x has 4KB of emulated EEPROM in flash.
+ * Writes are immediate via eepromemu_flash_write.
  *
  * Usage:
  * @code
@@ -45,7 +45,8 @@ public:
     }
 
     bool commit() override {
-        return true;  // EEPROM writes are immediate on Teensy
+        // Teensy 4.x: writes are immediate, no flush needed
+        return true;
     }
 
     bool erase(uint32_t address, size_t size) override {
