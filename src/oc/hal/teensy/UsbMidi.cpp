@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-namespace oc::teensy {
+namespace oc::hal::teensy {
 
 UsbMidi::UsbMidi(const UsbMidiConfig& config)
     : max_active_notes_(config.maxActiveNotes) {}
@@ -114,4 +114,4 @@ void UsbMidi::setOnNoteOn(NoteCallback cb) { on_note_on_ = cb; }
 void UsbMidi::setOnNoteOff(NoteCallback cb) { on_note_off_ = cb; }
 void UsbMidi::setOnSysEx(SysExCallback cb) { on_sysex_ = cb; }
 
-}  // namespace oc::teensy
+}  // namespace oc::hal::teensy

@@ -5,12 +5,12 @@
  * @brief Teensy-specific AppBuilder with simplified API
  *
  * @code
- * #include <oc/teensy/Teensy.hpp>
+ * #include <oc/hal/teensy/Teensy.hpp>
  *
  * std::optional<oc::app::OpenControlApp> app;
  *
  * void setup() {
- *     app = oc::teensy::AppBuilder()
+ *     app = oc::hal::teensy::AppBuilder()
  *         .midi()
  *         .encoders(Config::ENCODERS)
  *         .buttons(Config::BUTTONS)
@@ -26,17 +26,17 @@
 
 #include <oc/app/AppBuilder.hpp>
 #include <oc/app/OpenControlApp.hpp>
-#include <oc/teensy/ButtonController.hpp>
-#include <oc/teensy/EncoderController.hpp>
-#include <oc/teensy/EncoderToolHardware.hpp>
-#include <oc/teensy/TeensyGpio.hpp>
-#include <oc/teensy/UsbMidi.hpp>
-#include <oc/teensy/UsbSerial.hpp>
+#include <oc/hal/teensy/ButtonController.hpp>
+#include <oc/hal/teensy/EncoderController.hpp>
+#include <oc/hal/teensy/EncoderToolHardware.hpp>
+#include <oc/hal/teensy/TeensyGpio.hpp>
+#include <oc/hal/teensy/UsbMidi.hpp>
+#include <oc/hal/teensy/UsbSerial.hpp>
 #include <oc/time/Time.hpp>
 
 #include <Arduino.h>
 
-namespace oc::teensy {
+namespace oc::hal::teensy {
 
 /**
  * @brief Teensy-optimized application builder
@@ -181,7 +181,7 @@ public:
      * Enables direct assignment without calling .build():
      * @code
      * std::optional<OpenControlApp> app;
-     * app = oc::teensy::AppBuilder()
+     * app = oc::hal::teensy::AppBuilder()
      *     .midi()
      *     .encoders(Config::ENCODERS);
      * @endcode
@@ -198,4 +198,4 @@ private:
     }
 };
 
-}  // namespace oc::teensy
+}  // namespace oc::hal::teensy

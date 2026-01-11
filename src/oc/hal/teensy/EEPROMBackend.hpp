@@ -4,7 +4,7 @@
 
 #include <oc/hal/IStorageBackend.hpp>
 
-namespace oc::teensy {
+namespace oc::hal::teensy {
 
 /**
  * @brief EEPROM storage backend for Teensy
@@ -62,4 +62,4 @@ public:
     }
 };
 
-}  // namespace oc::teensy
+}  // namespace oc::hal::teensy

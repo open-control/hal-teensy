@@ -9,10 +9,10 @@
  *
  * Usage in main.cpp:
  * @code
- * #include <oc/teensy/TeensyOutput.hpp>
+ * #include <oc/hal/teensy/TeensyOutput.hpp>
  *
  * void setup() {
- *     oc::log::setOutput(oc::teensy::serialOutput());
+ *     oc::log::setOutput(oc::hal::teensy::serialOutput());
  *     OC_LOG_INFO("Boot started");
  * }
  * @endcode
@@ -21,7 +21,7 @@
 #include <Arduino.h>
 #include <oc/log/Log.hpp>
 
-namespace oc::teensy {
+namespace oc::hal::teensy {
 
 /**
  * @brief Get the Serial-based log output for Teensy
@@ -75,7 +75,7 @@ inline void waitForSerial(uint32_t timeoutMs = 5000) {
  *
  * @code
  * void setup() {
- *     oc::teensy::initLogging();  // Wait + configure
+ *     oc::hal::teensy::initLogging();  // Wait + configure
  *     OC_LOG_INFO("Boot started");
  * }
  * @endcode
@@ -85,4 +85,4 @@ inline void initLogging(uint32_t waitTimeoutMs = 5000) {
     oc::log::setOutput(serialOutput());
 }
 
-}  // namespace oc::teensy
+}  // namespace oc::hal::teensy

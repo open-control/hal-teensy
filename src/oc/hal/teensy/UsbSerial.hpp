@@ -15,7 +15,7 @@
 #include <oc/hal/ISerialTransport.hpp>
 #include <oc/codec/CobsCodec.hpp>
 
-namespace oc::teensy {
+namespace oc::hal::teensy {
 
 /**
  * @brief USB Serial transport configuration
@@ -112,4 +112,4 @@ private:
     bool initialized_ = false;
 };
 
-}  // namespace oc::teensy
+}  // namespace oc::hal::teensy

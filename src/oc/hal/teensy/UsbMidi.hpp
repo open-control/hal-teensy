@@ -7,7 +7,7 @@
 #include <oc/core/Result.hpp>
 #include <oc/hal/IMidiTransport.hpp>
 
-namespace oc::teensy {
+namespace oc::hal::teensy {
 
 struct UsbMidiConfig {
     size_t maxActiveNotes = 32;
@@ -64,4 +64,4 @@ private:
     bool initialized_ = false;
 };
 
-}  // namespace oc::teensy
+}  // namespace oc::hal::teensy

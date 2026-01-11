@@ -2,14 +2,14 @@
 
 #include <array>
 
-#include <oc/common/ButtonDef.hpp>
-#include <oc/common/Types.hpp>
+#include <oc/hal/common/ButtonDef.hpp>
+#include <oc/hal/common/Types.hpp>
 #include <oc/core/Result.hpp>
 #include <oc/hal/IButtonController.hpp>
 #include <oc/hal/IGpio.hpp>
 #include <oc/hal/IMultiplexer.hpp>
 
-namespace oc::teensy {
+namespace oc::hal::teensy {
 
 template <size_t N>
 class ButtonController : public oc::hal::IButtonController {
@@ -91,4 +91,4 @@ private:
     bool initialized_ = false;
 };
 
-}  // namespace oc::teensy
+}  // namespace oc::hal::teensy
