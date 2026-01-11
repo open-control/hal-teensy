@@ -3,13 +3,13 @@
 #include <array>
 #include <memory>
 
-#include <oc/common/EncoderDef.hpp>
+#include <oc/hal/common/EncoderDef.hpp>
 #include <oc/core/Result.hpp>
 #include <oc/core/input/EncoderLogic.hpp>
 #include <oc/hal/IEncoderController.hpp>
 #include <oc/hal/IEncoderHardware.hpp>
 
-namespace oc::teensy {
+namespace oc::hal::teensy {
 
 using EncoderDef = common::EncoderDef;
 
@@ -134,4 +134,4 @@ private:
     bool initialized_ = false;
 };
 
-}  // namespace oc::teensy
+}  // namespace oc::hal::teensy

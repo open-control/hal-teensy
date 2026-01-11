@@ -4,7 +4,7 @@
 
 #include <oc/hal/IStorageBackend.hpp>
 
-namespace oc::teensy {
+namespace oc::hal::teensy {
 
 /**
  * @brief LittleFS storage backend for Teensy 4.x
@@ -179,4 +179,4 @@ private:
     bool initialized_ = false;
 };
 
-}  // namespace oc::teensy
+}  // namespace oc::hal::teensy

@@ -1,6 +1,6 @@
 #include "Ili9341.hpp"
 
-namespace oc::teensy {
+namespace oc::hal::teensy {
 
 Ili9341::Ili9341(const Ili9341Config& config, const Ili9341Buffers& buffers)
     : config_(config)
@@ -65,4 +65,4 @@ void Ili9341::waitAsyncComplete() {
     if (tft_) tft_->waitUpdateAsyncComplete();
 }
 
-}  // namespace oc::teensy
+}  // namespace oc::hal::teensy

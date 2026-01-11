@@ -7,9 +7,9 @@
  * Includes AppBuilder and all hardware drivers for easy setup.
  *
  * @code
- * #include <oc/teensy/Teensy.hpp>
+ * #include <oc/hal/teensy/Teensy.hpp>
  *
- * app = oc::teensy::AppBuilder()
+ * app = oc::hal::teensy::AppBuilder()
  *     .midi()
  *     .encoders(Config::ENCODERS)
  *     .buttons(Config::BUTTONS);
@@ -20,16 +20,16 @@
 
 // Logging with dependency injection
 #include <oc/log/Log.hpp>
-#include <oc/teensy/TeensyOutput.hpp>
+#include <oc/hal/teensy/TeensyOutput.hpp>
 
-#include <oc/teensy/AppBuilder.hpp>
-#include <oc/teensy/TeensyGpio.hpp>
-#include <oc/teensy/EncoderToolHardware.hpp>
-#include <oc/teensy/EncoderController.hpp>
-#include <oc/teensy/ButtonController.hpp>
-#include <oc/teensy/GenericMux.hpp>
+#include <oc/hal/teensy/AppBuilder.hpp>
+#include <oc/hal/teensy/TeensyGpio.hpp>
+#include <oc/hal/teensy/EncoderToolHardware.hpp>
+#include <oc/hal/teensy/EncoderController.hpp>
+#include <oc/hal/teensy/ButtonController.hpp>
+#include <oc/hal/teensy/GenericMux.hpp>
 
-namespace oc::teensy {
+namespace oc::hal::teensy {
 
 /**
  * @brief Default time provider using Arduino millis()
@@ -92,4 +92,4 @@ auto makeMux(const typename GenericMux<NumPins>::Config& config) {
     return std::make_unique<GenericMux<NumPins>>(config, gpio());
 }
 
-}  // namespace oc::teensy
+}  // namespace oc::hal::teensy

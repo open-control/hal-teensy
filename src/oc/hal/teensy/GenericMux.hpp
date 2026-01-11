@@ -8,7 +8,7 @@
 #include <oc/hal/IGpio.hpp>
 #include <oc/hal/IMultiplexer.hpp>
 
-namespace oc::teensy {
+namespace oc::hal::teensy {
 
 /**
  * @brief Generic multiplexer driver for CD74HC40xx series
@@ -83,4 +83,4 @@ using CD74HC4067 = GenericMux<4>;
 using CD74HC4051 = GenericMux<3>;
 using CD74HC4052 = GenericMux<2>;
 
-}  // namespace oc::teensy
+}  // namespace oc::hal::teensy

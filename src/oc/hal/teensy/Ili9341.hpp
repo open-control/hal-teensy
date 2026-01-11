@@ -9,7 +9,7 @@
 #include <oc/core/Result.hpp>
 #include <oc/hal/IDisplayDriver.hpp>
 
-namespace oc::teensy {
+namespace oc::hal::teensy {
 
 /**
  * @brief Hardware configuration for ILI9341 display (constexpr-friendly)
@@ -118,4 +118,4 @@ private:
     bool initialized_ = false;
 };
 
-}  // namespace oc::teensy
+}  // namespace oc::hal::teensy

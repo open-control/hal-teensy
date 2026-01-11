@@ -4,16 +4,16 @@
  */
 #include <Arduino.h>
 
-#include <oc/teensy/EEPROMBackend.hpp>
-#include <oc/teensy/EncoderController.hpp>
-#include <oc/teensy/Ili9341.hpp>
-#include <oc/teensy/LittleFSBackend.hpp>
-#include <oc/teensy/UsbMidi.hpp>
+#include <oc/hal/teensy/EEPROMBackend.hpp>
+#include <oc/hal/teensy/EncoderController.hpp>
+#include <oc/hal/teensy/Ili9341.hpp>
+#include <oc/hal/teensy/LittleFSBackend.hpp>
+#include <oc/hal/teensy/UsbMidi.hpp>
 
 // Verify types compile correctly
-using Midi = oc::teensy::UsbMidi;
-using EepromStorage = oc::teensy::EEPROMBackend;
-using FlashStorage = oc::teensy::LittleFSBackend;
+using Midi = oc::hal::teensy::UsbMidi;
+using EepromStorage = oc::hal::teensy::EEPROMBackend;
+using FlashStorage = oc::hal::teensy::LittleFSBackend;
 
 void setup() {}
 void loop() {}

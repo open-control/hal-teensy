@@ -7,7 +7,7 @@
 #include <oc/core/Result.hpp>
 #include <oc/hal/IEncoderHardware.hpp>
 
-namespace oc::teensy {
+namespace oc::hal::teensy {
 
 /**
  * @brief EncoderTool-based encoder hardware (ISR-driven)
@@ -62,4 +62,4 @@ inline EncoderToolFactory& encoderFactory() {
     return instance;
 }
 
-}  // namespace oc::teensy
+}  // namespace oc::hal::teensy

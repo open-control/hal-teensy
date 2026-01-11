@@ -4,7 +4,7 @@
 
 #include <oc/hal/IGpio.hpp>
 
-namespace oc::teensy {
+namespace oc::hal::teensy {
 
 class TeensyGpio : public oc::hal::IGpio {
 public:
@@ -40,4 +40,4 @@ inline TeensyGpio& gpio() {
     return instance;
 }
 
-}  // namespace oc::teensy
+}  // namespace oc::hal::teensy
