@@ -30,6 +30,7 @@
 #include <oc/hal/teensy/EncoderController.hpp>
 #include <oc/hal/teensy/EncoderToolHardware.hpp>
 #include <oc/hal/teensy/TeensyGpio.hpp>
+#include <oc/hal/teensy/TeensyOutput.hpp>
 #include <oc/hal/teensy/UsbMidi.hpp>
 #include <oc/hal/teensy/UsbSerial.hpp>
 #include <oc/time/Time.hpp>
@@ -43,6 +44,7 @@ namespace oc::hal::teensy {
  *
  * Wraps oc::app::AppBuilder with convenience methods that:
  * - Auto-configure timeProvider to millis()
+ * - Auto-configure log output to Serial
  * - Accept hardware definition arrays directly
  * - Create appropriate controllers internally
  * - Support implicit conversion (no .build() needed)
@@ -52,11 +54,14 @@ namespace oc::hal::teensy {
 class AppBuilder {
 public:
     /**
-     * @brief Construct builder with default Teensy time provider
+     * @brief Construct builder with default Teensy time provider and logging
      *
-     * Registers the global oc::time provider and configures the app builder.
+     * Registers the global oc::time provider, configures log output to Serial,
+     * and configures the app builder.
      */
     AppBuilder() {
+        // Configure logging output (decoupled from waitForSerial)
+        oc::log::setOutput(serialOutput());
         // Register global time provider for oc::time::millis()
         oc::time::setProvider(defaultTimeProvider);
         // Configure app-level time provider
@@ -77,15 +82,15 @@ public:
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // SERIAL
+    // FRAME TRANSPORT
     // ═══════════════════════════════════════════════════════════════════
 
     /**
-     * @brief Enable USB Serial transport with COBS framing
+     * @brief Enable frame transport over USB Serial (COBS framing)
      * @return Reference to this builder for chaining
      */
-    AppBuilder& serial() {
-        builder_.serial(std::make_unique<UsbSerial>());
+    AppBuilder& frames() {
+        builder_.frames(std::make_unique<UsbSerial>());
         return *this;
     }
 
