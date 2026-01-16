@@ -4,7 +4,7 @@
  * @file UsbSerial.hpp
  * @brief Teensy USB Serial transport with COBS framing
  *
- * Implements IFrameTransport using Teensy's USB Serial.
+ * Implements IMessageTransport using Teensy's USB Serial.
  * Handles COBS encoding/decoding for reliable frame delivery.
  *
  * @note Requires USB Type "Serial + MIDI" or "Serial" in Arduino IDE.
@@ -12,7 +12,7 @@
  */
 
 #include <Arduino.h>
-#include <oc/hal/IFrameTransport.hpp>
+#include <oc/hal/IMessageTransport.hpp>
 #include <oc/codec/CobsCodec.hpp>
 
 namespace oc::hal::teensy {
@@ -31,7 +31,7 @@ struct UsbSerialConfig {
  * Provides reliable framed communication over USB Serial.
  * Compatible with oc-bridge for TCP tunneling.
  */
-class UsbSerial : public hal::IFrameTransport {
+class UsbSerial : public hal::IMessageTransport {
 public:
     UsbSerial() = default;
     explicit UsbSerial(const UsbSerialConfig& config)
