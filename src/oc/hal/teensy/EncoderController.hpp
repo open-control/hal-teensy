@@ -3,7 +3,7 @@
 #include <array>
 #include <memory>
 
-#include <oc/hal/common/EncoderDef.hpp>
+#include <oc/hal/embedded/EncoderDef.hpp>
 #include <oc/core/Result.hpp>
 #include <oc/core/input/EncoderLogic.hpp>
 #include <oc/hal/IEncoderController.hpp>
@@ -11,7 +11,7 @@
 
 namespace oc::hal::teensy {
 
-using EncoderDef = common::EncoderDef;
+using EncoderDef = embedded::EncoderDef;
 
 /**
  * @brief Context passed to ISR callback for encoder identification

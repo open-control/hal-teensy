@@ -2,8 +2,8 @@
 
 #include <array>
 
-#include <oc/hal/common/ButtonDef.hpp>
-#include <oc/hal/common/Types.hpp>
+#include <oc/hal/embedded/ButtonDef.hpp>
+#include <oc/hal/embedded/GpioPin.hpp>
 #include <oc/core/Result.hpp>
 #include <oc/hal/IButtonController.hpp>
 #include <oc/hal/IGpio.hpp>
@@ -14,7 +14,7 @@ namespace oc::hal::teensy {
 template <size_t N>
 class ButtonController : public oc::hal::IButtonController {
 public:
-    using ButtonDef = common::ButtonDef;
+    using ButtonDef = embedded::ButtonDef;
 
     ButtonController(
         const std::array<ButtonDef, N>& buttons,
@@ -28,7 +28,7 @@ public:
 
     oc::core::Result<void> init() override {
         for (const auto& btn : buttons_) {
-            if (btn.pin.source == oc::hal::GpioPin::Source::MCU) {
+            if (btn.pin.source == oc::hal::embedded::GpioPin::Source::MCU) {
                 gpio_.pinMode(btn.pin.pin, oc::hal::PinMode::PIN_INPUT_PULLUP);
             }
         }
@@ -70,7 +70,7 @@ public:
 
 private:
     bool readPin(const ButtonDef& btn) {
-        if (btn.pin.source == oc::hal::GpioPin::Source::MCU) {
+        if (btn.pin.source == oc::hal::embedded::GpioPin::Source::MCU) {
             return gpio_.digitalRead(btn.pin.pin);
         } else {
             if (mux_) {
