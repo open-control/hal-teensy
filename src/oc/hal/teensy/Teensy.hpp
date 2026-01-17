@@ -51,7 +51,7 @@ inline uint32_t defaultTimeProvider() {
  * @endcode
  */
 template <size_t N>
-auto makeEncoderController(const std::array<common::EncoderDef, N>& defs) {
+auto makeEncoderController(const std::array<embedded::EncoderDef, N>& defs) {
     return std::make_unique<EncoderController<N>>(defs, encoderFactory());
 }
 
@@ -70,7 +70,7 @@ auto makeEncoderController(const std::array<common::EncoderDef, N>& defs) {
  */
 template <size_t N>
 auto makeButtonController(
-    const std::array<common::ButtonDef, N>& defs,
+    const std::array<embedded::ButtonDef, N>& defs,
     hal::IMultiplexer* mux = nullptr,
     uint8_t debounceMs = 5) {
     return std::make_unique<ButtonController<N>>(defs, gpio(), mux, debounceMs);

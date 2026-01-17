@@ -110,7 +110,7 @@ public:
      * @endcode
      */
     template <size_t N>
-    AppBuilder& encoders(const std::array<common::EncoderDef, N>& defs) {
+    AppBuilder& encoders(const std::array<embedded::EncoderDef, N>& defs) {
         builder_.encoders(std::make_unique<EncoderController<N>>(defs, encoderFactory()));
         return *this;
     }
@@ -133,7 +133,7 @@ public:
      * @endcode
      */
     template <size_t N>
-    AppBuilder& buttons(const std::array<common::ButtonDef, N>& defs,
+    AppBuilder& buttons(const std::array<embedded::ButtonDef, N>& defs,
                         uint8_t debounceMs = 5) {
         builder_.buttons(std::make_unique<ButtonController<N>>(defs, gpio(), nullptr, debounceMs));
         return *this;
@@ -154,7 +154,7 @@ public:
      * @endcode
      */
     template <size_t N>
-    AppBuilder& buttons(const std::array<common::ButtonDef, N>& defs,
+    AppBuilder& buttons(const std::array<embedded::ButtonDef, N>& defs,
                         hal::IMultiplexer& mux,
                         uint8_t debounceMs = 5) {
         builder_.buttons(std::make_unique<ButtonController<N>>(defs, gpio(), &mux, debounceMs));
