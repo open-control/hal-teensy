@@ -41,7 +41,7 @@ public:
      * @brief Initialize the filesystem
      * @return true if filesystem mounted successfully
      */
-    bool begin() {
+    bool begin() override {
         if (initialized_) return true;
 
         if (!fs_.begin(fsSize_)) {

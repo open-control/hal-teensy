@@ -12,11 +12,15 @@ namespace oc::hal::teensy {
  * Teensy 4.x has 4KB of emulated EEPROM in flash.
  * Writes are immediate via eepromemu_flash_write.
  *
+ * This is an immediate-write backend: write() persists directly,
+ * commit() is a no-op, and isDirty() always returns false.
+ *
  * Usage:
  * @code
  * EEPROMBackend eeprom;
- * Settings<MySettings> settings(eeprom, 0x0000, 1);
+ * eeprom.begin();  // Always succeeds
  *
+ * Settings<MySettings> settings(eeprom, 0x0000, 1);
  * settings.load();
  * settings.modify([](auto& s) { s.volume = 0.75f; });
  * settings.save();
@@ -24,6 +28,11 @@ namespace oc::hal::teensy {
  */
 class EEPROMBackend : public hal::IStorageBackend {
 public:
+    bool begin() override {
+        // EEPROM is always available on Teensy
+        return true;
+    }
+
     bool available() const override {
         return true;
     }
@@ -45,7 +54,7 @@ public:
     }
 
     bool commit() override {
-        // Teensy 4.x: writes are immediate, no flush needed
+        // Immediate backend: writes go directly to flash, nothing to commit
         return true;
     }
 
@@ -59,6 +68,11 @@ public:
 
     size_t capacity() const override {
         return EEPROM.length();  // 4096 on Teensy 4.x
+    }
+
+    bool isDirty() const override {
+        // Immediate backend: never dirty (writes are instant)
+        return false;
     }
 };
 
