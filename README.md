@@ -70,8 +70,8 @@ constexpr std::array<oc::common::EncoderDef, 4> ENCODERS = {{
 }};
 
 constexpr std::array<oc::common::ButtonDef, 2> BUTTONS = {{
-    {.id = 1, .pin = {.pin = 32, .source = oc::hal::GpioPin::Source::MCU}},
-    {.id = 2, .pin = {.pin = 35, .source = oc::hal::GpioPin::Source::MCU}},
+    {.id = 1, .pin = {.pin = 32, .source = oc::hal::common::embedded::GpioPin::Source::MCU}},
+    {.id = 2, .pin = {.pin = 35, .source = oc::hal::common::embedded::GpioPin::Source::MCU}},
 }};
 
 }

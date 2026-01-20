@@ -2,7 +2,7 @@
 
 #include <LittleFS.h>
 
-#include <oc/hal/IStorageBackend.hpp>
+#include <oc/interface/IStorage.hpp>
 
 namespace oc::hal::teensy {
 
@@ -26,7 +26,7 @@ namespace oc::hal::teensy {
  *
  * @see https://github.com/PaulStoffregen/LittleFS
  */
-class LittleFSBackend : public hal::IStorageBackend {
+class LittleFSBackend : public interface::IStorage {
 public:
     /**
      * @brief Construct LittleFS backend

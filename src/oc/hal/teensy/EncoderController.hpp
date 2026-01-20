@@ -3,15 +3,15 @@
 #include <array>
 #include <memory>
 
-#include <oc/hal/embedded/EncoderDef.hpp>
-#include <oc/core/Result.hpp>
+#include <oc/hal/common/embedded/EncoderDef.hpp>
+#include <oc/types/Result.hpp>
 #include <oc/core/input/EncoderLogic.hpp>
-#include <oc/hal/IEncoderController.hpp>
-#include <oc/hal/IEncoderHardware.hpp>
+#include <oc/interface/IEncoder.hpp>
+#include <oc/interface/IEncoderHardware.hpp>
 
 namespace oc::hal::teensy {
 
-using EncoderDef = embedded::EncoderDef;
+using EncoderDef = common::embedded::EncoderDef;
 
 /**
  * @brief Context passed to ISR callback for encoder identification
@@ -25,11 +25,11 @@ struct EncoderContext;
  * @tparam N Number of encoders to manage
  */
 template <size_t N>
-class EncoderController : public hal::IEncoderController {
+class EncoderController : public interface::IEncoder {
 public:
     EncoderController(
         const std::array<EncoderDef, N>& defs,
-        hal::IEncoderHardwareFactory& factory)
+        interface::IEncoderHardwareFactory& factory)
         : defs_(defs), factory_(factory) {
         for (size_t i = 0; i < N; ++i) {
             core::input::EncoderConfig cfg{
@@ -44,8 +44,8 @@ public:
         }
     }
 
-    core::Result<void> init() override {
-        if (initialized_) return core::Result<void>::ok();
+    oc::Result<void> init() override {
+        if (initialized_) return oc::Result<void>::ok();
 
         for (size_t i = 0; i < N; ++i) {
             const auto& def = defs_[i];
@@ -57,7 +57,7 @@ public:
             }
         }
         initialized_ = true;
-        return core::Result<void>::ok();
+        return oc::Result<void>::ok();
     }
 
     void update() override {
@@ -70,42 +70,42 @@ public:
         }
     }
 
-    float getPosition(hal::EncoderID id) const override {
+    float getPosition(oc::EncoderID id) const override {
         int idx = findIndex(id);
         return idx >= 0 ? encoders_logic_[idx]->getLastValue() : 0.0f;
     }
 
-    void setPosition(hal::EncoderID id, float value) override {
+    void setPosition(oc::EncoderID id, float value) override {
         int idx = findIndex(id);
         if (idx >= 0) encoders_logic_[idx]->setPosition(value);
     }
 
-    void setMode(hal::EncoderID id, hal::EncoderMode mode) override {
+    void setMode(oc::EncoderID id, interface::EncoderMode mode) override {
         int idx = findIndex(id);
         if (idx >= 0) encoders_logic_[idx]->setMode(mode);
     }
 
-    void setBounds(hal::EncoderID id, float min, float max) override {
+    void setBounds(oc::EncoderID id, float min, float max) override {
         int idx = findIndex(id);
         if (idx >= 0) encoders_logic_[idx]->setBounds(min, max);
     }
 
-    void setDiscreteSteps(hal::EncoderID id, uint8_t steps) override {
+    void setDiscreteSteps(oc::EncoderID id, uint8_t steps) override {
         int idx = findIndex(id);
         if (idx >= 0) encoders_logic_[idx]->setDiscreteSteps(steps);
     }
 
-    void setContinuous(hal::EncoderID id) override {
+    void setContinuous(oc::EncoderID id) override {
         int idx = findIndex(id);
         if (idx >= 0) encoders_logic_[idx]->setContinuous();
     }
 
-    void setDelta(hal::EncoderID id, float delta) override {
+    void setDelta(oc::EncoderID id, float delta) override {
         int idx = findIndex(id);
         if (idx >= 0) encoders_logic_[idx]->setDelta(delta);
     }
 
-    void setCallback(hal::EncoderCallback cb) override { callback_ = cb; }
+    void setCallback(oc::EncoderCallback cb) override { callback_ = cb; }
 
 private:
     struct Context {
@@ -118,7 +118,7 @@ private:
         c->controller->encoders_logic_[c->index]->processDelta(delta);
     }
 
-    int findIndex(hal::EncoderID id) const {
+    int findIndex(oc::EncoderID id) const {
         for (size_t i = 0; i < N; ++i) {
             if (defs_[i].id == id) return static_cast<int>(i);
         }
@@ -126,11 +126,11 @@ private:
     }
 
     std::array<EncoderDef, N> defs_;
-    hal::IEncoderHardwareFactory& factory_;
+    interface::IEncoderHardwareFactory& factory_;
     std::array<Context, N> contexts_;
-    std::array<std::unique_ptr<hal::IEncoderHardware>, N> encoders_hw_;
+    std::array<std::unique_ptr<interface::IEncoderHardware>, N> encoders_hw_;
     std::array<std::unique_ptr<core::input::EncoderLogic>, N> encoders_logic_;
-    hal::EncoderCallback callback_;
+    oc::EncoderCallback callback_;
     bool initialized_ = false;
 };
 

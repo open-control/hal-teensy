@@ -12,7 +12,7 @@
  */
 
 #include <Arduino.h>
-#include <oc/hal/IFrameTransport.hpp>
+#include <oc/interface/ITransport.hpp>
 #include <oc/codec/CobsCodec.hpp>
 
 namespace oc::hal::teensy {
@@ -31,7 +31,7 @@ struct UsbSerialConfig {
  * Provides reliable framed communication over USB Serial.
  * Compatible with oc-bridge for TCP tunneling.
  */
-class UsbSerial : public hal::IFrameTransport {
+class UsbSerial : public interface::ITransport {
 public:
     UsbSerial() = default;
     explicit UsbSerial(const UsbSerialConfig& config)
@@ -47,10 +47,10 @@ public:
      *
      * @note Baud rate is ignored for USB Serial (native USB speed).
      */
-    core::Result<void> init() override {
+    oc::Result<void> init() override {
         Serial.begin(0);  // Baud ignored for USB
         initialized_ = true;
-        return core::Result<void>::ok();
+        return oc::Result<void>::ok();
     }
 
     /**

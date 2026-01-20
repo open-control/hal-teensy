@@ -2,7 +2,7 @@
 
 #include <EEPROM.h>
 
-#include <oc/hal/IStorageBackend.hpp>
+#include <oc/interface/IStorage.hpp>
 
 namespace oc::hal::teensy {
 
@@ -26,7 +26,7 @@ namespace oc::hal::teensy {
  * settings.save();
  * @endcode
  */
-class EEPROMBackend : public hal::IStorageBackend {
+class EEPROMBackend : public interface::IStorage {
 public:
     bool begin() override {
         // EEPROM is always available on Teensy

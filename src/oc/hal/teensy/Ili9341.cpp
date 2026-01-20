@@ -9,9 +9,9 @@ Ili9341::Ili9341(const Ili9341Config& config, const Ili9341Buffers& buffers)
     , effectiveDiff2Size_(buffers.diff2Size > 0 ? buffers.diff2Size : config.recommendedDiffSize())
 {}
 
-core::Result<void> Ili9341::init() {
-    using R = core::Result<void>;
-    using E = core::ErrorCode;
+oc::Result<void> Ili9341::init() {
+    using R = oc::Result<void>;
+    using E = oc::ErrorCode;
 
     if (initialized_) return R::ok();
 
@@ -54,7 +54,7 @@ core::Result<void> Ili9341::init() {
     return R::ok();
 }
 
-void Ili9341::flush(const void* buffer, const hal::Rect& /*area*/) {
+void Ili9341::flush(const void* buffer, const interface::Rect& /*area*/) {
     if (!initialized_) return;
 
     // Async update - false = don't wait for redraw

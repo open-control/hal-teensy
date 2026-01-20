@@ -2,9 +2,8 @@
 
 #include <SD.h>
 #include <cstring>
-#include <vector>
 
-#include <oc/hal/IStorageBackend.hpp>
+#include <oc/interface/IStorage.hpp>
 #include <oc/log/Log.hpp>
 
 namespace oc::hal::teensy {
@@ -22,40 +21,42 @@ namespace oc::hal::teensy {
  *     --> SDIO ----> SD Card (storage)  <-- Separate bus!
  * ```
  *
- * Data is cached in RAM for instant read/write access.
- * Persistence happens only on commit() (~3ms write latency).
+ * File handle is kept open for fast read/write access.
+ * commit() flushes data to ensure persistence.
  *
  * Usage:
  * @code
- * SDCardBackend storage("/macros.bin");
+ * SDCardBackend storage("/settings.bin");
  * if (!storage.begin()) {
  *     // SD card not inserted or failed
  * }
  *
- * storage.write(0x0000, data, size);  // Instant (RAM cache)
- * storage.commit();                    // ~3ms (writes to SD)
+ * storage.write(0x0000, data, size);  // Direct write via open handle
+ * storage.commit();                    // Flush to SD
  * @endcode
  *
  * @note Requires micro SD card in Teensy 4.1 built-in slot
- * @note File is created on first commit() if it doesn't exist
  */
-class SDCardBackend : public hal::IStorageBackend {
+class SDCardBackend : public interface::IStorage {
 public:
     /**
      * @brief Construct SD card backend
      * @param filename File path on SD card (e.g., "/settings.bin")
-     * @param capacity Virtual capacity in bytes (default 4KB like EEPROM)
+     * @param capacity Max addressable size (guard against wild addresses)
      */
     explicit SDCardBackend(const char* filename = "/settings.bin",
-                           size_t capacity = 4096)
+                           size_t capacity = 1024 * 1024)
         : filename_(filename), capacity_(capacity) {}
 
+    ~SDCardBackend() {
+        if (file_) {
+            file_.close();
+        }
+    }
+
     /**
-     * @brief Initialize SD card and load data to cache
-     * @return true if SD card mounted and ready
-     *
-     * If the file doesn't exist, cache starts empty (filled with 0xFF on read).
-     * If the file exists, its contents are loaded into RAM cache.
+     * @brief Initialize SD card and open file handle
+     * @return true if SD card mounted and file opened
      */
     bool begin() override {
         if (initialized_) return true;
@@ -65,89 +66,78 @@ public:
             return false;
         }
 
-        initialized_ = true;
-        bool loaded = loadToCache();
-        OC_LOG_INFO("[SDCard] Ready, cache={}B", cache_.size());
-        return loaded;
-    }
-
-    bool available() const override {
-        return initialized_;
-    }
-
-    size_t read(uint32_t address, uint8_t* buffer, size_t size) override {
-        if (!initialized_ || address + size > capacity_) return 0;
-
-        if (address + size <= cache_.size()) {
-            // Fully within cache
-            std::memcpy(buffer, cache_.data() + address, size);
-        } else if (address < cache_.size()) {
-            // Partially in cache, rest is 0xFF
-            size_t fromCache = cache_.size() - address;
-            std::memcpy(buffer, cache_.data() + address, fromCache);
-            std::memset(buffer + fromCache, 0xFF, size - fromCache);
-        } else {
-            // Entirely beyond cache (unwritten region)
-            std::memset(buffer, 0xFF, size);
-        }
-        return size;
-    }
-
-    size_t write(uint32_t address, const uint8_t* buffer, size_t size) override {
-        if (!initialized_ || address + size > capacity_) return 0;
-
-        // Expand cache if needed
-        if (address + size > cache_.size()) {
-            size_t oldSize = cache_.size();
-            cache_.resize(address + size);
-            // Fill gap with 0xFF (erased state)
-            if (address > oldSize) {
-                std::memset(cache_.data() + oldSize, 0xFF, address - oldSize);
-            }
-        }
-
-        std::memcpy(cache_.data() + address, buffer, size);
-        dirty_ = true;
-        return size;
-    }
-
-    bool commit() override {
-        if (!dirty_ || !initialized_) return true;
-
-        // FILE_WRITE = O_RDWR | O_CREAT | O_AT_END
-        File file = SD.open(filename_, FILE_WRITE);
-        if (!file) {
+        // Open with read+write, create if needed
+        file_ = SD.open(filename_, FILE_WRITE);
+        if (!file_) {
             OC_LOG_ERROR("[SDCard] Failed to open {}", filename_);
             return false;
         }
 
-        // Seek to beginning since FILE_WRITE positions at end
-        file.seek(0);
-        size_t written = file.write(cache_.data(), cache_.size());
+        initialized_ = true;
+        return true;
+    }
 
-        // Truncate to written size (removes old data if file was larger)
-        // NOTE: truncate() without arg = truncate(0) = erase all!
-        file.truncate(written);
-        file.close();
+    bool available() const override {
+        return initialized_ && SD.mediaPresent();
+    }
 
-        if (written == cache_.size()) {
-            dirty_ = false;
-            return true;
+    size_t read(uint32_t address, uint8_t* buffer, size_t size) override {
+        if (!file_ || address + size > capacity_) return 0;
+
+        size_t fileSize = file_.size();
+        if (address >= fileSize) {
+            std::memset(buffer, 0xFF, size);
+            return size;
         }
-        OC_LOG_ERROR("[SDCard] Write failed ({}/{}B)", written, cache_.size());
-        return false;
+
+        file_.seek(address);
+        size_t bytesRead = file_.read(buffer, size);
+
+        // Pad with 0xFF if file is shorter than requested
+        if (bytesRead < size) {
+            std::memset(buffer + bytesRead, 0xFF, size - bytesRead);
+        }
+
+        return size;
+    }
+
+    size_t write(uint32_t address, const uint8_t* buffer, size_t size) override {
+        if (!file_ || address + size > capacity_) return 0;
+
+        // Pad with 0xFF if writing beyond current file size
+        size_t fileSize = file_.size();
+        if (address > fileSize) {
+            file_.seek(fileSize);
+            size_t gap = address - fileSize;
+            while (gap > 0) {
+                size_t chunk = (gap > sizeof(PADDING)) ? sizeof(PADDING) : gap;
+                file_.write(PADDING, chunk);
+                gap -= chunk;
+            }
+        }
+
+        file_.seek(address);
+        return file_.write(buffer, size);
+    }
+
+    bool commit() override {
+        if (!file_) return false;
+        file_.flush();
+        return true;
     }
 
     bool erase(uint32_t address, size_t size) override {
-        if (!initialized_ || address + size > capacity_) return false;
+        if (!file_ || address + size > capacity_) return false;
 
-        // Expand cache if needed to cover erase region
-        if (address + size > cache_.size()) {
-            cache_.resize(address + size, 0xFF);
+        file_.seek(address);
+        size_t remaining = size;
+        while (remaining > 0) {
+            size_t chunk = (remaining > sizeof(PADDING)) ? sizeof(PADDING) : remaining;
+            if (file_.write(PADDING, chunk) != chunk) {
+                return false;
+            }
+            remaining -= chunk;
         }
-
-        std::memset(cache_.data() + address, 0xFF, size);
-        dirty_ = true;
         return true;
     }
 
@@ -156,49 +146,37 @@ public:
     }
 
     bool isDirty() const override {
-        return dirty_;
+        return false;  // No tracking, caller should commit() when needed
     }
 
     /**
-     * @brief Set the virtual capacity
-     * @param cap Maximum addressable size in bytes
+     * @brief Close and reopen file (for SD card hot-swap recovery)
      */
-    void setCapacity(size_t cap) {
-        capacity_ = cap;
-    }
-
-    /**
-     * @brief Get current cache size (actual data written)
-     */
-    size_t cacheSize() const {
-        return cache_.size();
+    bool reopen() {
+        if (file_) file_.close();
+        file_ = SD.open(filename_, FILE_WRITE);
+        return static_cast<bool>(file_);
     }
 
 private:
-    bool loadToCache() {
-        File file = SD.open(filename_, FILE_READ);
-        if (!file) {
-            // File doesn't exist yet - start with empty cache
-            cache_.clear();
-            return true;
-        }
-
-        size_t fileSize = file.size();
-        if (fileSize > capacity_) {
-            fileSize = capacity_;
-        }
-
-        cache_.resize(fileSize);
-        file.read(cache_.data(), cache_.size());
-        file.close();
-        return true;
-    }
+    static constexpr uint8_t PADDING[64] = {
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    };
 
     const char* filename_;
     size_t capacity_;
+    File file_;  // Persistent handle - avoids open/close overhead
     bool initialized_ = false;
-    bool dirty_ = false;
-    std::vector<uint8_t> cache_;
 };
+
+// Static member definition
+constexpr uint8_t SDCardBackend::PADDING[64];
 
 }  // namespace oc::hal::teensy

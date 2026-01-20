@@ -2,21 +2,21 @@
 
 #include <Arduino.h>
 
-#include <oc/hal/IGpio.hpp>
+#include <oc/interface/IGpio.hpp>
 
 namespace oc::hal::teensy {
 
-class TeensyGpio : public oc::hal::IGpio {
+class TeensyGpio : public interface::IGpio {
 public:
-    void pinMode(uint8_t pin, oc::hal::PinMode mode) override {
+    void pinMode(uint8_t pin, interface::PinMode mode) override {
         switch (mode) {
-            case oc::hal::PinMode::PIN_INPUT:
+            case interface::PinMode::PIN_INPUT:
                 ::pinMode(pin, INPUT);
                 break;
-            case oc::hal::PinMode::PIN_INPUT_PULLUP:
+            case interface::PinMode::PIN_INPUT_PULLUP:
                 ::pinMode(pin, INPUT_PULLUP);
                 break;
-            case oc::hal::PinMode::PIN_OUTPUT:
+            case interface::PinMode::PIN_OUTPUT:
                 ::pinMode(pin, OUTPUT);
                 break;
         }

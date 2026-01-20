@@ -31,6 +31,9 @@
 
 namespace oc::hal::teensy {
 
+// Alias for common embedded types
+namespace embedded = oc::hal::common::embedded;
+
 /**
  * @brief Default time provider using Arduino millis()
  * Used by LVGL bridge and other time-dependent components.
@@ -71,7 +74,7 @@ auto makeEncoderController(const std::array<embedded::EncoderDef, N>& defs) {
 template <size_t N>
 auto makeButtonController(
     const std::array<embedded::ButtonDef, N>& defs,
-    hal::IMultiplexer* mux = nullptr,
+    interface::IMultiplexer* mux = nullptr,
     uint8_t debounceMs = 5) {
     return std::make_unique<ButtonController<N>>(defs, gpio(), mux, debounceMs);
 }

@@ -7,8 +7,8 @@ namespace oc::hal::teensy {
 UsbMidi::UsbMidi(const UsbMidiConfig& config)
     : max_active_notes_(config.maxActiveNotes) {}
 
-core::Result<void> UsbMidi::init() {
-    if (initialized_) return core::Result<void>::ok();
+oc::Result<void> UsbMidi::init() {
+    if (initialized_) return oc::Result<void>::ok();
 
     active_notes_.resize(max_active_notes_);
     for (auto& note : active_notes_) {
@@ -16,7 +16,7 @@ core::Result<void> UsbMidi::init() {
     }
 
     initialized_ = true;
-    return core::Result<void>::ok();
+    return oc::Result<void>::ok();
 }
 
 void UsbMidi::update() {

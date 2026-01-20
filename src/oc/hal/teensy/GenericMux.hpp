@@ -4,9 +4,9 @@
 
 #include <Arduino.h>
 
-#include <oc/core/Result.hpp>
-#include <oc/hal/IGpio.hpp>
-#include <oc/hal/IMultiplexer.hpp>
+#include <oc/types/Result.hpp>
+#include <oc/interface/IGpio.hpp>
+#include <oc/interface/IMultiplexer.hpp>
 
 namespace oc::hal::teensy {
 
@@ -16,7 +16,7 @@ namespace oc::hal::teensy {
  * @tparam NumPins Number of select pins (1-4)
  */
 template <uint8_t NumPins>
-class GenericMux : public hal::IMultiplexer {
+class GenericMux : public interface::IMultiplexer {
     static_assert(NumPins >= 1 && NumPins <= 4, "Mux supports 1-4 select pins");
 
 public:
@@ -27,24 +27,24 @@ public:
         bool signalPullup = true;
     };
 
-    GenericMux(const Config& cfg, hal::IGpio& gpio)
+    GenericMux(const Config& cfg, interface::IGpio& gpio)
         : config_(cfg), gpio_(&gpio) {}
 
     // Default move operations (enabled by using pointer instead of reference)
     GenericMux(GenericMux&&) = default;
     GenericMux& operator=(GenericMux&&) = default;
 
-    core::Result<void> init() override {
+    oc::Result<void> init() override {
         for (uint8_t pin : config_.selectPins) {
-            gpio_->pinMode(pin, hal::PinMode::PIN_OUTPUT);
+            gpio_->pinMode(pin, interface::PinMode::PIN_OUTPUT);
             gpio_->digitalWrite(pin, false);
         }
         gpio_->pinMode(config_.signalPin,
-                       config_.signalPullup ? hal::PinMode::PIN_INPUT_PULLUP
-                                            : hal::PinMode::PIN_INPUT);
+                       config_.signalPullup ? interface::PinMode::PIN_INPUT_PULLUP
+                                            : interface::PinMode::PIN_INPUT);
         current_channel_ = 0;
         initialized_ = true;
-        return core::Result<void>::ok();
+        return oc::Result<void>::ok();
     }
 
     uint8_t channelCount() const override { return 1 << NumPins; }
@@ -74,7 +74,7 @@ public:
 
 private:
     Config config_;
-    hal::IGpio* gpio_ = nullptr;  // Pointer enables move semantics
+    interface::IGpio* gpio_ = nullptr;  // Pointer enables move semantics
     uint8_t current_channel_ = 0;
     bool initialized_ = false;
 };

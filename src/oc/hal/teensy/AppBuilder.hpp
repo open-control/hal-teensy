@@ -39,6 +39,9 @@
 
 namespace oc::hal::teensy {
 
+// Alias for common embedded types
+namespace embedded = oc::hal::common::embedded;
+
 /**
  * @brief Teensy-optimized application builder
  *
@@ -155,7 +158,7 @@ public:
      */
     template <size_t N>
     AppBuilder& buttons(const std::array<embedded::ButtonDef, N>& defs,
-                        hal::IMultiplexer& mux,
+                        interface::IMultiplexer& mux,
                         uint8_t debounceMs = 5) {
         builder_.buttons(std::make_unique<ButtonController<N>>(defs, gpio(), &mux, debounceMs));
         return *this;
@@ -171,7 +174,7 @@ public:
      * @param config Input timing configuration (long press, double tap thresholds)
      * @return Reference to this builder for chaining
      */
-    AppBuilder& inputConfig(const core::InputConfig& config) {
+    AppBuilder& inputConfig(const core::input::InputConfig& config) {
         builder_.inputConfig(config);
         return *this;
     }

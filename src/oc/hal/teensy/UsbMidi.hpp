@@ -4,8 +4,8 @@
 #include <cstdint>
 #include <vector>
 
-#include <oc/core/Result.hpp>
-#include <oc/hal/IMidiTransport.hpp>
+#include <oc/types/Result.hpp>
+#include <oc/interface/IMidi.hpp>
 
 namespace oc::hal::teensy {
 
@@ -16,7 +16,7 @@ struct UsbMidiConfig {
 /**
  * @brief Teensy USB MIDI driver
  */
-class UsbMidi : public hal::IMidiTransport {
+class UsbMidi : public interface::IMidi {
 public:
     static constexpr size_t DEFAULT_MAX_ACTIVE_NOTES = 32;
 
@@ -27,7 +27,7 @@ public:
     UsbMidi(const UsbMidi&) = delete;
     UsbMidi& operator=(const UsbMidi&) = delete;
 
-    core::Result<void> init() override;
+    oc::Result<void> init() override;
     void update() override;
 
     void sendCC(uint8_t channel, uint8_t cc, uint8_t value) override;

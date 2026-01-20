@@ -6,8 +6,8 @@
 
 #include <ILI9341_T4.h>
 
-#include <oc/core/Result.hpp>
-#include <oc/hal/IDisplayDriver.hpp>
+#include <oc/types/Result.hpp>
+#include <oc/interface/IDisplay.hpp>
 
 namespace oc::hal::teensy {
 
@@ -87,7 +87,7 @@ struct Ili9341Buffers {
  * display->init();
  * @endcode
  */
-class Ili9341 : public hal::IDisplayDriver {
+class Ili9341 : public interface::IDisplay {
 public:
     Ili9341(const Ili9341Config& config, const Ili9341Buffers& buffers);
     ~Ili9341() override = default;
@@ -100,8 +100,8 @@ public:
     Ili9341(const Ili9341&) = delete;
     Ili9341& operator=(const Ili9341&) = delete;
 
-    core::Result<void> init() override;
-    void flush(const void* buffer, const hal::Rect& area) override;
+    oc::Result<void> init() override;
+    void flush(const void* buffer, const interface::Rect& area) override;
     uint16_t width() const override { return config_.width; }
     uint16_t height() const override { return config_.height; }
 

@@ -2,38 +2,38 @@
 
 #include <array>
 
-#include <oc/hal/embedded/ButtonDef.hpp>
-#include <oc/hal/embedded/GpioPin.hpp>
-#include <oc/core/Result.hpp>
-#include <oc/hal/IButtonController.hpp>
-#include <oc/hal/IGpio.hpp>
-#include <oc/hal/IMultiplexer.hpp>
+#include <oc/hal/common/embedded/ButtonDef.hpp>
+#include <oc/hal/common/embedded/GpioPin.hpp>
+#include <oc/types/Result.hpp>
+#include <oc/interface/IButton.hpp>
+#include <oc/interface/IGpio.hpp>
+#include <oc/interface/IMultiplexer.hpp>
 
 namespace oc::hal::teensy {
 
 template <size_t N>
-class ButtonController : public oc::hal::IButtonController {
+class ButtonController : public interface::IButton {
 public:
-    using ButtonDef = embedded::ButtonDef;
+    using ButtonDef = common::embedded::ButtonDef;
 
     ButtonController(
         const std::array<ButtonDef, N>& buttons,
-        oc::hal::IGpio& gpio,
-        oc::hal::IMultiplexer* mux = nullptr,
+        interface::IGpio& gpio,
+        interface::IMultiplexer* mux = nullptr,
         uint8_t debounceMs = 5)
         : buttons_(buttons), gpio_(gpio), mux_(mux), debounce_ms_(debounceMs) {
         states_.fill(false);
         last_change_.fill(0);
     }
 
-    oc::core::Result<void> init() override {
+    oc::Result<void> init() override {
         for (const auto& btn : buttons_) {
-            if (btn.pin.source == oc::hal::embedded::GpioPin::Source::MCU) {
-                gpio_.pinMode(btn.pin.pin, oc::hal::PinMode::PIN_INPUT_PULLUP);
+            if (btn.pin.source == common::embedded::GpioPin::Source::MCU) {
+                gpio_.pinMode(btn.pin.pin, interface::PinMode::PIN_INPUT_PULLUP);
             }
         }
         initialized_ = true;
-        return oc::core::Result<void>::ok();
+        return oc::Result<void>::ok();
     }
 
     void update(uint32_t currentTimeMs) override {
@@ -51,26 +51,26 @@ public:
                     if (callback_) {
                         callback_(
                             buttons_[i].id,
-                            pressed ? oc::hal::ButtonEvent::PRESSED
-                                    : oc::hal::ButtonEvent::RELEASED);
+                            pressed ? oc::ButtonEvent::PRESSED
+                                    : oc::ButtonEvent::RELEASED);
                     }
                 }
             }
         }
     }
 
-    bool isPressed(oc::hal::ButtonID id) const override {
+    bool isPressed(oc::ButtonID id) const override {
         for (size_t i = 0; i < N; ++i) {
             if (buttons_[i].id == id) return states_[i];
         }
         return false;
     }
 
-    void setCallback(oc::hal::ButtonCallback cb) override { callback_ = cb; }
+    void setCallback(oc::ButtonCallback cb) override { callback_ = cb; }
 
 private:
     bool readPin(const ButtonDef& btn) {
-        if (btn.pin.source == oc::hal::embedded::GpioPin::Source::MCU) {
+        if (btn.pin.source == common::embedded::GpioPin::Source::MCU) {
             return gpio_.digitalRead(btn.pin.pin);
         } else {
             if (mux_) {
@@ -81,13 +81,13 @@ private:
     }
 
     std::array<ButtonDef, N> buttons_;
-    oc::hal::IGpio& gpio_;
-    oc::hal::IMultiplexer* mux_;
+    interface::IGpio& gpio_;
+    interface::IMultiplexer* mux_;
     uint8_t debounce_ms_;
 
     std::array<bool, N> states_;
     std::array<uint32_t, N> last_change_;
-    oc::hal::ButtonCallback callback_;
+    oc::ButtonCallback callback_;
     bool initialized_ = false;
 };
 
