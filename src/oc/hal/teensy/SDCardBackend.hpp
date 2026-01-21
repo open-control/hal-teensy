@@ -64,14 +64,14 @@ public:
 
         if (!SD.begin(BUILTIN_SDCARD)) {
             OC_LOG_ERROR("[SDCard] SD.begin() failed");
-            return oc::Result<void>::err({oc::ErrorCode::STORAGE_INIT_FAILED, "SD.begin() failed"});
+            return oc::Result<void>::err({oc::ErrorCode::HARDWARE_INIT_FAILED, "SD.begin() failed"});
         }
 
         // Open with read+write, create if needed
         file_ = SD.open(filename_, FILE_WRITE);
         if (!file_) {
             OC_LOG_ERROR("[SDCard] Failed to open {}", filename_);
-            return oc::Result<void>::err({oc::ErrorCode::STORAGE_INIT_FAILED, "Failed to open file"});
+            return oc::Result<void>::err({oc::ErrorCode::HARDWARE_INIT_FAILED, "Failed to open file"});
         }
 
         initialized_ = true;
