@@ -6,7 +6,7 @@
 
 #include <ILI9341_T4.h>
 
-#include <oc/types/Result.hpp>
+#include <oc/type/Result.hpp>
 #include <oc/interface/IDisplay.hpp>
 
 namespace oc::hal::teensy {
@@ -100,7 +100,7 @@ public:
     Ili9341(const Ili9341&) = delete;
     Ili9341& operator=(const Ili9341&) = delete;
 
-    oc::Result<void> init() override;
+    oc::type::Result<void> init() override;
     void flush(const void* buffer, const interface::Rect& area) override;
     uint16_t width() const override { return config_.width; }
     uint16_t height() const override { return config_.height; }

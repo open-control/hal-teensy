@@ -4,7 +4,7 @@
 
 #include <EncoderTool.h>
 
-#include <oc/types/Result.hpp>
+#include <oc/type/Result.hpp>
 #include <oc/interface/IEncoderHardware.hpp>
 
 namespace oc::hal::teensy {
@@ -20,14 +20,14 @@ public:
     EncoderToolHardware(uint8_t pinA, uint8_t pinB)
         : pinA_(pinA), pinB_(pinB) {}
 
-    oc::Result<void> init() override {
+    oc::type::Result<void> init() override {
         encoder_.begin(pinA_, pinB_, EncoderTool::CountMode::full);
         if (callback_) {
             encoder_.attachCallback([this](int, int delta) {
                 callback_(context_, delta);
             });
         }
-        return oc::Result<void>::ok();
+        return oc::type::Result<void>::ok();
     }
 
     void setDeltaCallback(interface::EncoderDeltaCallback callback, void* context) override {

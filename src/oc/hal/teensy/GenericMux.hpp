@@ -4,7 +4,7 @@
 
 #include <Arduino.h>
 
-#include <oc/types/Result.hpp>
+#include <oc/type/Result.hpp>
 #include <oc/interface/IGpio.hpp>
 #include <oc/interface/IMultiplexer.hpp>
 
@@ -34,7 +34,7 @@ public:
     GenericMux(GenericMux&&) = default;
     GenericMux& operator=(GenericMux&&) = default;
 
-    oc::Result<void> init() override {
+    oc::type::Result<void> init() override {
         for (uint8_t pin : config_.selectPins) {
             gpio_->pinMode(pin, interface::PinMode::PIN_OUTPUT);
             gpio_->digitalWrite(pin, false);
@@ -44,7 +44,7 @@ public:
                                             : interface::PinMode::PIN_INPUT);
         current_channel_ = 0;
         initialized_ = true;
-        return oc::Result<void>::ok();
+        return oc::type::Result<void>::ok();
     }
 
     uint8_t channelCount() const override { return 1 << NumPins; }

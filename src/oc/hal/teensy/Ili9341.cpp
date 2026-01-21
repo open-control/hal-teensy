@@ -9,9 +9,9 @@ Ili9341::Ili9341(const Ili9341Config& config, const Ili9341Buffers& buffers)
     , effectiveDiff2Size_(buffers.diff2Size > 0 ? buffers.diff2Size : config.recommendedDiffSize())
 {}
 
-oc::Result<void> Ili9341::init() {
-    using R = oc::Result<void>;
-    using E = oc::ErrorCode;
+oc::type::Result<void> Ili9341::init() {
+    using R = oc::type::Result<void>;
+    using E = oc::type::ErrorCode;
 
     if (initialized_) return R::ok();
 

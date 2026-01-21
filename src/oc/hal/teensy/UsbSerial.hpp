@@ -47,10 +47,10 @@ public:
      *
      * @note Baud rate is ignored for USB Serial (native USB speed).
      */
-    oc::Result<void> init() override {
+    oc::type::Result<void> init() override {
         Serial.begin(0);  // Baud ignored for USB
         initialized_ = true;
-        return oc::Result<void>::ok();
+        return oc::type::Result<void>::ok();
     }
 
     /**

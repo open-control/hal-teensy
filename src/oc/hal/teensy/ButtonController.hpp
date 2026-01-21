@@ -4,7 +4,7 @@
 
 #include <oc/hal/common/embedded/ButtonDef.hpp>
 #include <oc/hal/common/embedded/GpioPin.hpp>
-#include <oc/types/Result.hpp>
+#include <oc/type/Result.hpp>
 #include <oc/interface/IButton.hpp>
 #include <oc/interface/IGpio.hpp>
 #include <oc/interface/IMultiplexer.hpp>
@@ -26,14 +26,14 @@ public:
         last_change_.fill(0);
     }
 
-    oc::Result<void> init() override {
+    oc::type::Result<void> init() override {
         for (const auto& btn : buttons_) {
             if (btn.pin.source == common::embedded::GpioPin::Source::MCU) {
                 gpio_.pinMode(btn.pin.pin, interface::PinMode::PIN_INPUT_PULLUP);
             }
         }
         initialized_ = true;
-        return oc::Result<void>::ok();
+        return oc::type::Result<void>::ok();
     }
 
     void update(uint32_t currentTimeMs) override {
@@ -51,22 +51,22 @@ public:
                     if (callback_) {
                         callback_(
                             buttons_[i].id,
-                            pressed ? oc::ButtonEvent::PRESSED
-                                    : oc::ButtonEvent::RELEASED);
+                            pressed ? oc::type::ButtonEvent::PRESSED
+                                    : oc::type::ButtonEvent::RELEASED);
                     }
                 }
             }
         }
     }
 
-    bool isPressed(oc::ButtonID id) const override {
+    bool isPressed(oc::type::ButtonID id) const override {
         for (size_t i = 0; i < N; ++i) {
             if (buttons_[i].id == id) return states_[i];
         }
         return false;
     }
 
-    void setCallback(oc::ButtonCallback cb) override { callback_ = cb; }
+    void setCallback(oc::type::ButtonCallback cb) override { callback_ = cb; }
 
 private:
     bool readPin(const ButtonDef& btn) {
@@ -87,7 +87,7 @@ private:
 
     std::array<bool, N> states_;
     std::array<uint32_t, N> last_change_;
-    oc::ButtonCallback callback_;
+    oc::type::ButtonCallback callback_;
     bool initialized_ = false;
 };
 

@@ -3,7 +3,7 @@
 #include <LittleFS.h>
 
 #include <oc/interface/IStorage.hpp>
-#include <oc/types/Result.hpp>
+#include <oc/type/Result.hpp>
 
 namespace oc::hal::teensy {
 
@@ -42,15 +42,15 @@ public:
      * @brief Initialize the filesystem
      * @return Result<void> - ok() if filesystem mounted successfully
      */
-    oc::Result<void> init() override {
-        if (initialized_) return oc::Result<void>::ok();
+    oc::type::Result<void> init() override {
+        if (initialized_) return oc::type::Result<void>::ok();
 
         if (!fs_.begin(fsSize_)) {
-            return oc::Result<void>::err(oc::Error{oc::ErrorCode::HARDWARE_INIT_FAILED, "LittleFS mount failed"});
+            return oc::type::Result<void>::err(oc::type::Error{oc::type::ErrorCode::HARDWARE_INIT_FAILED, "LittleFS mount failed"});
         }
 
         initialized_ = true;
-        return oc::Result<void>::ok();
+        return oc::type::Result<void>::ok();
     }
 
     bool available() const override {

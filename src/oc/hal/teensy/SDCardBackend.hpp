@@ -5,7 +5,7 @@
 
 #include <oc/interface/IStorage.hpp>
 #include <oc/log/Log.hpp>
-#include <oc/types/Result.hpp>
+#include <oc/type/Result.hpp>
 
 namespace oc::hal::teensy {
 
@@ -59,23 +59,23 @@ public:
      * @brief Initialize SD card and open file handle
      * @return Result<void> - ok() if SD card mounted and file opened
      */
-    oc::Result<void> init() override {
-        if (initialized_) return oc::Result<void>::ok();
+    oc::type::Result<void> init() override {
+        if (initialized_) return oc::type::Result<void>::ok();
 
         if (!SD.begin(BUILTIN_SDCARD)) {
             OC_LOG_ERROR("[SDCard] SD.begin() failed");
-            return oc::Result<void>::err({oc::ErrorCode::HARDWARE_INIT_FAILED, "SD.begin() failed"});
+            return oc::type::Result<void>::err({oc::type::ErrorCode::HARDWARE_INIT_FAILED, "SD.begin() failed"});
         }
 
         // Open with read+write, create if needed
         file_ = SD.open(filename_, FILE_WRITE);
         if (!file_) {
             OC_LOG_ERROR("[SDCard] Failed to open {}", filename_);
-            return oc::Result<void>::err({oc::ErrorCode::HARDWARE_INIT_FAILED, "Failed to open file"});
+            return oc::type::Result<void>::err({oc::type::ErrorCode::HARDWARE_INIT_FAILED, "Failed to open file"});
         }
 
         initialized_ = true;
-        return oc::Result<void>::ok();
+        return oc::type::Result<void>::ok();
     }
 
     bool available() const override {
