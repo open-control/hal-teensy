@@ -3,6 +3,7 @@
 #include <EEPROM.h>
 
 #include <oc/interface/IStorage.hpp>
+#include <oc/types/Result.hpp>
 
 namespace oc::hal::teensy {
 
@@ -18,7 +19,7 @@ namespace oc::hal::teensy {
  * Usage:
  * @code
  * EEPROMBackend eeprom;
- * eeprom.begin();  // Always succeeds
+ * eeprom.init();  // Always succeeds
  *
  * Settings<MySettings> settings(eeprom, 0x0000, 1);
  * settings.load();
@@ -28,9 +29,9 @@ namespace oc::hal::teensy {
  */
 class EEPROMBackend : public interface::IStorage {
 public:
-    bool begin() override {
+    oc::Result<void> init() override {
         // EEPROM is always available on Teensy
-        return true;
+        return oc::Result<void>::ok();
     }
 
     bool available() const override {

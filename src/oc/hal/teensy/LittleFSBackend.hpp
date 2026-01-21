@@ -3,6 +3,7 @@
 #include <LittleFS.h>
 
 #include <oc/interface/IStorage.hpp>
+#include <oc/types/Result.hpp>
 
 namespace oc::hal::teensy {
 
@@ -18,7 +19,7 @@ namespace oc::hal::teensy {
  * Usage:
  * @code
  * LittleFSBackend flash(1024 * 1024);  // 1MB filesystem
- * if (flash.begin()) {
+ * if (flash.init()) {
  *     Settings<MySettings> settings(flash, 0x0000, 1);
  *     settings.load();
  * }
@@ -39,17 +40,17 @@ public:
 
     /**
      * @brief Initialize the filesystem
-     * @return true if filesystem mounted successfully
+     * @return Result<void> - ok() if filesystem mounted successfully
      */
-    bool begin() override {
-        if (initialized_) return true;
+    oc::Result<void> init() override {
+        if (initialized_) return oc::Result<void>::ok();
 
         if (!fs_.begin(fsSize_)) {
-            return false;
+            return oc::Result<void>::err(oc::Error{oc::ErrorCode::HARDWARE_INIT_FAILED, "LittleFS mount failed"});
         }
 
         initialized_ = true;
-        return true;
+        return oc::Result<void>::ok();
     }
 
     bool available() const override {
