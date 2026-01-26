@@ -1,5 +1,5 @@
 {
-  "name": "hal-teensy",
+  "name": "oc-hal-teensy",
   "version": "0.2.0",
   "description": "Teensy HAL drivers for Open Control",
   "keywords": ["open-control", "teensy", "hal", "embedded", "teensy41"],
