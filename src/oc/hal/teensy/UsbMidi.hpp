@@ -37,12 +37,20 @@ public:
     void sendProgramChange(uint8_t channel, uint8_t program) override;
     void sendPitchBend(uint8_t channel, int16_t value) override;
     void sendChannelPressure(uint8_t channel, uint8_t pressure) override;
+    void sendClock() override;
+    void sendStart() override;
+    void sendStop() override;
+    void sendContinue() override;
     void allNotesOff() override;
 
     void setOnCC(CCCallback cb) override;
     void setOnNoteOn(NoteCallback cb) override;
     void setOnNoteOff(NoteCallback cb) override;
     void setOnSysEx(SysExCallback cb) override;
+    void setOnClock(ClockCallback cb) override;
+    void setOnStart(RealtimeCallback cb) override;
+    void setOnStop(RealtimeCallback cb) override;
+    void setOnContinue(RealtimeCallback cb) override;
 
 private:
     struct ActiveNote {
@@ -53,15 +61,24 @@ private:
 
     void markNoteActive(uint8_t channel, uint8_t note);
     void markNoteInactive(uint8_t channel, uint8_t note);
+    uint64_t nowUs_();
 
     CCCallback on_cc_;
     NoteCallback on_note_on_;
     NoteCallback on_note_off_;
     SysExCallback on_sysex_;
+    ClockCallback on_clock_;
+    RealtimeCallback on_start_;
+    RealtimeCallback on_stop_;
+    RealtimeCallback on_continue_;
 
     std::vector<ActiveNote> active_notes_;
     size_t max_active_notes_ = DEFAULT_MAX_ACTIVE_NOTES;
     bool initialized_ = false;
+
+    uint32_t last_micros_32_ = 0;
+    uint64_t micros_wraps_ = 0;
+    bool micros_initialized_ = false;
 };
 
 }  // namespace oc::hal::teensy

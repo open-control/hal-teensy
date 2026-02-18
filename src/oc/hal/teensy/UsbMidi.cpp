@@ -23,6 +23,7 @@ void UsbMidi::update() {
     if (!initialized_) return;
 
     while (usbMIDI.read()) {
+        const uint64_t timestampUs = nowUs_();
         uint8_t type = usbMIDI.getType();
         uint8_t channel = usbMIDI.getChannel() - 1;
         uint8_t data1 = usbMIDI.getData1();
@@ -42,6 +43,18 @@ void UsbMidi::update() {
                 if (on_sysex_) {
                     on_sysex_(usbMIDI.getSysExArray(), usbMIDI.getSysExArrayLength());
                 }
+                break;
+            case usbMIDI.Clock:
+                if (on_clock_) on_clock_(timestampUs);
+                break;
+            case usbMIDI.Start:
+                if (on_start_) on_start_();
+                break;
+            case usbMIDI.Continue:
+                if (on_continue_) on_continue_();
+                break;
+            case usbMIDI.Stop:
+                if (on_stop_) on_stop_();
                 break;
             default:
                 break;
@@ -100,6 +113,22 @@ void UsbMidi::sendChannelPressure(uint8_t channel, uint8_t pressure) {
     usbMIDI.sendAfterTouch(pressure, channel + 1);
 }
 
+void UsbMidi::sendClock() {
+    usbMIDI.sendRealTime(usbMIDI.Clock);
+}
+
+void UsbMidi::sendStart() {
+    usbMIDI.sendRealTime(usbMIDI.Start);
+}
+
+void UsbMidi::sendStop() {
+    usbMIDI.sendRealTime(usbMIDI.Stop);
+}
+
+void UsbMidi::sendContinue() {
+    usbMIDI.sendRealTime(usbMIDI.Continue);
+}
+
 void UsbMidi::allNotesOff() {
     for (auto& slot : active_notes_) {
         if (slot.active) {
@@ -109,9 +138,30 @@ void UsbMidi::allNotesOff() {
     }
 }
 
+uint64_t UsbMidi::nowUs_() {
+    const uint32_t raw = micros();
+
+    if (!micros_initialized_) {
+        micros_initialized_ = true;
+        last_micros_32_ = raw;
+        return static_cast<uint64_t>(raw);
+    }
+
+    if (raw < last_micros_32_) {
+        micros_wraps_ += 1;
+    }
+    last_micros_32_ = raw;
+
+    return (micros_wraps_ << 32) | static_cast<uint64_t>(raw);
+}
+
 void UsbMidi::setOnCC(CCCallback cb) { on_cc_ = cb; }
 void UsbMidi::setOnNoteOn(NoteCallback cb) { on_note_on_ = cb; }
 void UsbMidi::setOnNoteOff(NoteCallback cb) { on_note_off_ = cb; }
 void UsbMidi::setOnSysEx(SysExCallback cb) { on_sysex_ = cb; }
+void UsbMidi::setOnClock(ClockCallback cb) { on_clock_ = cb; }
+void UsbMidi::setOnStart(RealtimeCallback cb) { on_start_ = cb; }
+void UsbMidi::setOnStop(RealtimeCallback cb) { on_stop_ = cb; }
+void UsbMidi::setOnContinue(RealtimeCallback cb) { on_continue_ = cb; }
 
 }  // namespace oc::hal::teensy
