@@ -95,6 +95,16 @@ public:
         if (idx >= 0) encoders_logic_[idx]->setDiscreteSteps(steps);
     }
 
+    void setDiscreteTicksPerStep(oc::type::EncoderID id, uint16_t ticksPerStep) override {
+        int idx = findIndex(id);
+        if (idx >= 0) encoders_logic_[idx]->setDiscreteTicksPerStep(ticksPerStep);
+    }
+
+    void setNormalizedTurns(oc::type::EncoderID id, float turns) override {
+        int idx = findIndex(id);
+        if (idx >= 0) encoders_logic_[idx]->setNormalizedTurns(turns);
+    }
+
     void setContinuous(oc::type::EncoderID id) override {
         int idx = findIndex(id);
         if (idx >= 0) encoders_logic_[idx]->setContinuous();
