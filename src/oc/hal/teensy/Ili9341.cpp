@@ -2,14 +2,40 @@
 
 namespace oc::hal::teensy {
 
-Ili9341::Ili9341(const Ili9341Config& config, const Ili9341Buffers& buffers)
+namespace {
+
+Ili9341::StatSummary toStatSummary(const ILI9341_T4::StatsVar& stats) {
+    Ili9341::StatSummary summary;
+    summary.count = stats.count();
+    if (summary.count == 0) return summary;
+
+    summary.min = stats.min();
+    summary.max = stats.max();
+    summary.avg = stats.avg();
+    summary.stddev = stats.std();
+    return summary;
+}
+
+Ili9341::DiffStats toDiffStats(const ILI9341_T4::DiffBuff& diff) {
+    Ili9341::DiffStats stats;
+    stats.computed = diff.statsNbComputed();
+    stats.overflow = diff.statsNbOverflow();
+    stats.overflowRatio = diff.statsOverflowRatio();
+    stats.sizeBytes = toStatSummary(diff.statsSize());
+    stats.computeTimeUs = toStatSummary(diff.statsTime());
+    return stats;
+}
+
+}  // namespace
+
+FLASHMEM Ili9341::Ili9341(const Ili9341Config& config, const Ili9341Buffers& buffers)
     : config_(config)
     , buffers_(buffers)
     , effectiveDiff1Size_(buffers.diff1Size > 0 ? buffers.diff1Size : config.recommendedDiffSize())
     , effectiveDiff2Size_(buffers.diff2Size > 0 ? buffers.diff2Size : config.recommendedDiffSize())
 {}
 
-oc::type::Result<void> Ili9341::init() {
+FLASHMEM oc::type::Result<void> Ili9341::init() {
     using R = oc::type::Result<void>;
     using E = oc::type::ErrorCode;
 
@@ -49,6 +75,7 @@ oc::type::Result<void> Ili9341::init() {
     tft_->setIRQPriority(config_.irqPriority);
     tft_->setLateStartRatio(config_.lateStartRatio);
     tft_->clear(0x0000);
+    resetPerfStats();
 
     initialized_ = true;
     return R::ok();
@@ -61,8 +88,47 @@ void Ili9341::flush(const void* buffer, const interface::Rect& /*area*/) {
     tft_->update(reinterpret_cast<uint16_t*>(const_cast<void*>(buffer)), false);
 }
 
-void Ili9341::waitAsyncComplete() {
+FLASHMEM void Ili9341::waitAsyncComplete() {
     if (tft_) tft_->waitUpdateAsyncComplete();
+}
+
+FLASHMEM Ili9341::PerfSnapshot Ili9341::perfSnapshot() const {
+    PerfSnapshot snapshot;
+    if (!initialized_ || !tft_) return snapshot;
+
+    snapshot.valid = true;
+    snapshot.frames = tft_->statsNbFrames();
+
+    const uint32_t rawCurrentFps = tft_->statsCurrentFPS();
+    snapshot.currentFps = (rawCurrentFps == UINT32_MAX) ? 0u : rawCurrentFps;
+    snapshot.averageFps = tft_->statsFramerate();
+
+    snapshot.cpuTimeUs = toStatSummary(tft_->statsCPUtimePerFrame());
+    snapshot.uploadTimeUs = toStatSummary(tft_->statsUploadtimePerFrame());
+    snapshot.pixelsPerFrame = toStatSummary(tft_->statsPixelsPerFrame());
+    snapshot.transactionsPerFrame = toStatSummary(tft_->statsTransactionsPerFrame());
+    snapshot.marginPerFrame = toStatSummary(tft_->statsMarginPerFrame());
+    snapshot.realVSyncSpacing = toStatSummary(tft_->statsRealVSyncSpacing());
+
+    snapshot.pixelsRatio = tft_->statsRatioPixelPerFrame();
+    snapshot.diffSpeedUp = tft_->statsDiffSpeedUp();
+    snapshot.tearedFrames = tft_->statsNbTeared();
+    snapshot.tearRatio = tft_->statsRatioTeared();
+
+    if (snapshot.uploadTimeUs.count > 0 && snapshot.uploadTimeUs.avg > 0.0f) {
+        snapshot.uploadRateFps = 1'000'000.0f / snapshot.uploadTimeUs.avg;
+    }
+
+    if (diff1_) snapshot.diff1 = toDiffStats(*diff1_);
+    if (diff2_) snapshot.diff2 = toDiffStats(*diff2_);
+
+    return snapshot;
+}
+
+FLASHMEM void Ili9341::resetPerfStats() {
+    if (tft_) tft_->statsReset();
+    if (diff1_) diff1_->statsReset();
+    if (diff2_) diff2_->statsReset();
 }
 
 }  // namespace oc::hal::teensy

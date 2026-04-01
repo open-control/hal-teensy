@@ -1,13 +1,51 @@
 #include "UsbMidi.hpp"
 
+#include <algorithm>
+
 #include <Arduino.h>
+
+#include <oc/log/Log.hpp>
 
 namespace oc::hal::teensy {
 
-UsbMidi::UsbMidi(const UsbMidiConfig& config)
+namespace {
+
+inline uint32_t readPrimask() {
+    uint32_t primask = 0;
+    asm volatile("MRS %0, primask" : "=r"(primask));
+    return primask;
+}
+
+inline uint32_t readIpsr() {
+    uint32_t ipsr = 0;
+    asm volatile("MRS %0, ipsr" : "=r"(ipsr));
+    return ipsr;
+}
+
+class InterruptLock {
+public:
+    InterruptLock()
+        : primask_(readPrimask()) {
+        __disable_irq();
+    }
+
+    ~InterruptLock() {
+        asm volatile("MSR primask, %0" : : "r"(primask_) : "memory");
+    }
+
+    InterruptLock(const InterruptLock&) = delete;
+    InterruptLock& operator=(const InterruptLock&) = delete;
+
+private:
+    uint32_t primask_ = 0;
+};
+
+}  // namespace
+
+FLASHMEM UsbMidi::UsbMidi(const UsbMidiConfig& config)
     : max_active_notes_(config.maxActiveNotes) {}
 
-oc::type::Result<void> UsbMidi::init() {
+FLASHMEM oc::type::Result<void> UsbMidi::init() {
     if (initialized_) return oc::type::Result<void>::ok();
 
     active_notes_.resize(max_active_notes_);
@@ -21,6 +59,8 @@ oc::type::Result<void> UsbMidi::init() {
 
 void UsbMidi::update() {
     if (!initialized_) return;
+
+    drainOutputQueue_();
 
     while (usbMIDI.read()) {
         const uint64_t timestampUs = nowUs_();
@@ -60,6 +100,16 @@ void UsbMidi::update() {
                 break;
         }
     }
+
+    maybeLogOutputQueueStats_();
+}
+
+void UsbMidi::serviceOutput() {
+    if (!initialized_) return;
+    drainOutputQueue_();
+    if (readIpsr() == 0U) {
+        maybeLogOutputQueueStats_();
+    }
 }
 
 void UsbMidi::markNoteActive(uint8_t channel, uint8_t note) {
@@ -84,17 +134,15 @@ void UsbMidi::markNoteInactive(uint8_t channel, uint8_t note) {
 }
 
 void UsbMidi::sendCC(uint8_t channel, uint8_t cc, uint8_t value) {
-    usbMIDI.sendControlChange(cc, value, channel + 1);
+    enqueueShortMessage_(ShortMessageType::ControlChange, channel, cc, value);
 }
 
 void UsbMidi::sendNoteOn(uint8_t channel, uint8_t note, uint8_t velocity) {
-    markNoteActive(channel, note);
-    usbMIDI.sendNoteOn(note, velocity, channel + 1);
+    enqueueShortMessage_(ShortMessageType::NoteOn, channel, note, velocity);
 }
 
 void UsbMidi::sendNoteOff(uint8_t channel, uint8_t note, uint8_t velocity) {
-    markNoteInactive(channel, note);
-    usbMIDI.sendNoteOff(note, velocity, channel + 1);
+    enqueueShortMessage_(ShortMessageType::NoteOff, channel, note, velocity);
 }
 
 void UsbMidi::sendSysEx(const uint8_t* data, size_t length) {
@@ -102,66 +150,210 @@ void UsbMidi::sendSysEx(const uint8_t* data, size_t length) {
 }
 
 void UsbMidi::sendProgramChange(uint8_t channel, uint8_t program) {
-    usbMIDI.sendProgramChange(program, channel + 1);
+    enqueueShortMessage_(ShortMessageType::ProgramChange, channel, program, 0);
 }
 
 void UsbMidi::sendPitchBend(uint8_t channel, int16_t value) {
-    usbMIDI.sendPitchBend(value, channel + 1);
+    enqueuePitchBend_(channel, value);
 }
 
 void UsbMidi::sendChannelPressure(uint8_t channel, uint8_t pressure) {
-    usbMIDI.sendAfterTouch(pressure, channel + 1);
+    enqueueShortMessage_(ShortMessageType::ChannelPressure, channel, pressure, 0);
 }
 
 void UsbMidi::sendClock() {
-    usbMIDI.sendRealTime(usbMIDI.Clock);
+    enqueueShortMessage_(ShortMessageType::Clock, 0, 0, 0);
 }
 
 void UsbMidi::sendStart() {
-    usbMIDI.sendRealTime(usbMIDI.Start);
+    enqueueShortMessage_(ShortMessageType::Start, 0, 0, 0);
 }
 
 void UsbMidi::sendStop() {
-    usbMIDI.sendRealTime(usbMIDI.Stop);
+    enqueueShortMessage_(ShortMessageType::Stop, 0, 0, 0);
 }
 
 void UsbMidi::sendContinue() {
-    usbMIDI.sendRealTime(usbMIDI.Continue);
+    enqueueShortMessage_(ShortMessageType::Continue, 0, 0, 0);
 }
 
 void UsbMidi::allNotesOff() {
+    clearOutputQueue_();
+
     for (auto& slot : active_notes_) {
         if (slot.active) {
             usbMIDI.sendNoteOff(slot.note, 0, slot.channel + 1);
             slot.active = false;
         }
     }
+
+    usbMIDI.send_now();
 }
 
 uint64_t UsbMidi::nowUs_() {
-    const uint32_t raw = micros();
-
-    if (!micros_initialized_) {
-        micros_initialized_ = true;
-        last_micros_32_ = raw;
-        return static_cast<uint64_t>(raw);
-    }
-
-    if (raw < last_micros_32_) {
-        micros_wraps_ += 1;
-    }
-    last_micros_32_ = raw;
-
-    return (micros_wraps_ << 32) | static_cast<uint64_t>(raw);
+    return clock_.micros64();
 }
 
-void UsbMidi::setOnCC(CCCallback cb) { on_cc_ = cb; }
-void UsbMidi::setOnNoteOn(NoteCallback cb) { on_note_on_ = cb; }
-void UsbMidi::setOnNoteOff(NoteCallback cb) { on_note_off_ = cb; }
-void UsbMidi::setOnSysEx(SysExCallback cb) { on_sysex_ = cb; }
-void UsbMidi::setOnClock(ClockCallback cb) { on_clock_ = cb; }
-void UsbMidi::setOnStart(RealtimeCallback cb) { on_start_ = cb; }
-void UsbMidi::setOnStop(RealtimeCallback cb) { on_stop_ = cb; }
-void UsbMidi::setOnContinue(RealtimeCallback cb) { on_continue_ = cb; }
+bool UsbMidi::enqueueShortMessage_(ShortMessageType type,
+                                   uint8_t channel,
+                                   uint8_t data1,
+                                   uint8_t data2) {
+    if (!initialized_) {
+        return false;
+    }
+
+    InterruptLock lock;
+    if (output_queue_count_ >= output_queue_.size()) {
+        output_stats_.droppedCount += 1U;
+        return false;
+    }
+
+    output_queue_[output_queue_tail_] = {
+        .type = type,
+        .channel = channel,
+        .data1 = data1,
+        .data2 = data2,
+    };
+    output_queue_tail_ = (output_queue_tail_ + 1U) % output_queue_.size();
+    output_queue_count_ += 1U;
+    output_stats_.enqueuedCount += 1U;
+    output_stats_.maxDepth =
+        std::max(output_stats_.maxDepth, static_cast<uint32_t>(output_queue_count_));
+    return true;
+}
+
+bool UsbMidi::enqueuePitchBend_(uint8_t channel, int16_t value) {
+    if (!initialized_) {
+        return false;
+    }
+
+    InterruptLock lock;
+    if (output_queue_count_ >= output_queue_.size()) {
+        output_stats_.droppedCount += 1U;
+        return false;
+    }
+
+    output_queue_[output_queue_tail_] = {
+        .type = ShortMessageType::PitchBend,
+        .channel = channel,
+        .signedValue = value,
+    };
+    output_queue_tail_ = (output_queue_tail_ + 1U) % output_queue_.size();
+    output_queue_count_ += 1U;
+    output_stats_.enqueuedCount += 1U;
+    output_stats_.maxDepth =
+        std::max(output_stats_.maxDepth, static_cast<uint32_t>(output_queue_count_));
+    return true;
+}
+
+bool UsbMidi::tryDequeueShortMessage_(QueuedShortMessage& message) {
+    InterruptLock lock;
+    if (output_queue_count_ == 0) {
+        return false;
+    }
+
+    message = output_queue_[output_queue_head_];
+    output_queue_head_ = (output_queue_head_ + 1U) % output_queue_.size();
+    output_queue_count_ -= 1U;
+    return true;
+}
+
+void UsbMidi::clearOutputQueue_() {
+    InterruptLock lock;
+    output_queue_head_ = 0;
+    output_queue_tail_ = 0;
+    output_queue_count_ = 0;
+}
+
+void UsbMidi::drainOutputQueue_() {
+    QueuedShortMessage message;
+    if (!tryDequeueShortMessage_(message)) {
+        return;
+    }
+
+    const uint32_t drainStartUs = static_cast<uint32_t>(nowUs_());
+    uint32_t sentCount = 0;
+
+    do {
+        sendShortMessage_(message);
+        sentCount += 1U;
+    } while (tryDequeueShortMessage_(message));
+
+    usbMIDI.send_now();
+    output_stats_.sentCount += sentCount;
+    output_stats_.maxDrainUs = std::max(
+        output_stats_.maxDrainUs,
+        static_cast<uint32_t>(nowUs_()) - drainStartUs
+    );
+}
+
+void UsbMidi::sendShortMessage_(const QueuedShortMessage& message) {
+    switch (message.type) {
+        case ShortMessageType::ControlChange:
+            usbMIDI.sendControlChange(message.data1, message.data2, message.channel + 1);
+            break;
+        case ShortMessageType::NoteOn:
+            markNoteActive(message.channel, message.data1);
+            usbMIDI.sendNoteOn(message.data1, message.data2, message.channel + 1);
+            break;
+        case ShortMessageType::NoteOff:
+            markNoteInactive(message.channel, message.data1);
+            usbMIDI.sendNoteOff(message.data1, message.data2, message.channel + 1);
+            break;
+        case ShortMessageType::ProgramChange:
+            usbMIDI.sendProgramChange(message.data1, message.channel + 1);
+            break;
+        case ShortMessageType::PitchBend:
+            usbMIDI.sendPitchBend(message.signedValue, message.channel + 1);
+            break;
+        case ShortMessageType::ChannelPressure:
+            usbMIDI.sendAfterTouch(message.data1, message.channel + 1);
+            break;
+        case ShortMessageType::Clock:
+            usbMIDI.sendRealTime(usbMIDI.Clock);
+            break;
+        case ShortMessageType::Start:
+            usbMIDI.sendRealTime(usbMIDI.Start);
+            break;
+        case ShortMessageType::Stop:
+            usbMIDI.sendRealTime(usbMIDI.Stop);
+            break;
+        case ShortMessageType::Continue:
+            usbMIDI.sendRealTime(usbMIDI.Continue);
+            break;
+    }
+}
+
+void UsbMidi::maybeLogOutputQueueStats_() {
+    const uint32_t nowMs = millis();
+    if (output_stats_.windowStartMs == 0) {
+        output_stats_.reset(nowMs);
+        return;
+    }
+
+    if ((nowMs - output_stats_.windowStartMs) < 1000U) {
+        return;
+    }
+
+    if (output_stats_.droppedCount > 0 || output_stats_.maxDepth >= 16U || output_stats_.maxDrainUs >= 1000U) {
+        OC_LOG_INFO("[Perf][UsbMidiOut] enq={} sent={} drop={} maxDepth={} maxDrain={}us",
+                    output_stats_.enqueuedCount,
+                    output_stats_.sentCount,
+                    output_stats_.droppedCount,
+                    output_stats_.maxDepth,
+                    output_stats_.maxDrainUs);
+    }
+
+    output_stats_.reset(nowMs);
+}
+
+FLASHMEM void UsbMidi::setOnCC(CCCallback cb) { on_cc_ = cb; }
+FLASHMEM void UsbMidi::setOnNoteOn(NoteCallback cb) { on_note_on_ = cb; }
+FLASHMEM void UsbMidi::setOnNoteOff(NoteCallback cb) { on_note_off_ = cb; }
+FLASHMEM void UsbMidi::setOnSysEx(SysExCallback cb) { on_sysex_ = cb; }
+FLASHMEM void UsbMidi::setOnClock(ClockCallback cb) { on_clock_ = cb; }
+FLASHMEM void UsbMidi::setOnStart(RealtimeCallback cb) { on_start_ = cb; }
+FLASHMEM void UsbMidi::setOnStop(RealtimeCallback cb) { on_stop_ = cb; }
+FLASHMEM void UsbMidi::setOnContinue(RealtimeCallback cb) { on_continue_ = cb; }
 
 }  // namespace oc::hal::teensy

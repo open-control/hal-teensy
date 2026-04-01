@@ -89,6 +89,42 @@ struct Ili9341Buffers {
  */
 class Ili9341 : public interface::IDisplay {
 public:
+    struct StatSummary {
+        uint32_t count = 0;
+        int32_t min = 0;
+        int32_t max = 0;
+        float avg = 0.0f;
+        float stddev = 0.0f;
+    };
+
+    struct DiffStats {
+        uint32_t computed = 0;
+        uint32_t overflow = 0;
+        float overflowRatio = 0.0f;
+        StatSummary sizeBytes;
+        StatSummary computeTimeUs;
+    };
+
+    struct PerfSnapshot {
+        bool valid = false;
+        uint32_t frames = 0;
+        uint32_t currentFps = 0;
+        float averageFps = 0.0f;
+        float uploadRateFps = 0.0f;
+        float diffSpeedUp = 0.0f;
+        float pixelsRatio = 0.0f;
+        uint32_t tearedFrames = 0;
+        float tearRatio = 0.0f;
+        StatSummary cpuTimeUs;
+        StatSummary uploadTimeUs;
+        StatSummary pixelsPerFrame;
+        StatSummary transactionsPerFrame;
+        StatSummary marginPerFrame;
+        StatSummary realVSyncSpacing;
+        DiffStats diff1;
+        DiffStats diff2;
+    };
+
     Ili9341(const Ili9341Config& config, const Ili9341Buffers& buffers);
     ~Ili9341() override = default;
 
@@ -106,6 +142,8 @@ public:
     uint16_t height() const override { return config_.height; }
 
     void waitAsyncComplete();
+    PerfSnapshot perfSnapshot() const;
+    void resetPerfStats();
 
 private:
     Ili9341Config config_;
