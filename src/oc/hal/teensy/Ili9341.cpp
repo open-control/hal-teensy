@@ -1,8 +1,21 @@
 #include "Ili9341.hpp"
 
+#include <oc/log/Log.hpp>
+
 namespace oc::hal::teensy {
 
 namespace {
+
+#if defined(PERF_LOG)
+struct FlushPerfWindow {
+    uint32_t startedAtMs = 0;
+    uint32_t flushCount = 0;
+    uint32_t rectPixels = 0;
+    uint32_t fullFrameRects = 0;
+    uint32_t flushCallTimeUs = 0;
+    uint32_t maxFlushCallUs = 0;
+};
+#endif
 
 Ili9341::StatSummary toStatSummary(const ILI9341_T4::StatsVar& stats) {
     Ili9341::StatSummary summary;
@@ -25,6 +38,16 @@ Ili9341::DiffStats toDiffStats(const ILI9341_T4::DiffBuff& diff) {
     stats.computeTimeUs = toStatSummary(diff.statsTime());
     return stats;
 }
+
+#if defined(PERF_LOG)
+uint32_t rectPixelCount(const interface::Rect& rect) {
+    const int32_t width = rect.x2 - rect.x1 + 1;
+    const int32_t height = rect.y2 - rect.y1 + 1;
+    if (width <= 0 || height <= 0) return 0;
+
+    return static_cast<uint32_t>(width) * static_cast<uint32_t>(height);
+}
+#endif
 
 }  // namespace
 
@@ -77,15 +100,99 @@ FLASHMEM oc::type::Result<void> Ili9341::init() {
     tft_->clear(0x0000);
     resetPerfStats();
 
+#if defined(PERF_LOG)
+    OC_LOG_INFO(
+        "[Perf][Display][Config] framebufferBytes={} diff1Bytes={} diff2Bytes={} "
+        "spiHz={} refreshHz={} vsyncSpacing={} diffGap={}",
+        static_cast<uint32_t>(config_.framebufferSize() * sizeof(uint16_t)),
+        static_cast<uint32_t>(effectiveDiff1Size_),
+        static_cast<uint32_t>(diff2_ ? effectiveDiff2Size_ : 0),
+        config_.spiSpeed,
+        config_.refreshRate,
+        config_.vsyncSpacing,
+        config_.diffGap
+    );
+#endif
+
     initialized_ = true;
     return R::ok();
 }
 
-void Ili9341::flush(const void* buffer, const interface::Rect& /*area*/) {
+void Ili9341::flush(const void* buffer, const interface::Rect& area) {
     if (!initialized_) return;
 
+#if defined(PERF_LOG)
+    static FlushPerfWindow perfWindow;
+    const uint32_t nowMs = oc::log::getTimeMs();
+    if (perfWindow.startedAtMs == 0) {
+        perfWindow.startedAtMs = nowMs;
+    }
+
+    const uint32_t flushStartUs = micros();
+#endif
     // Async update - false = don't wait for redraw
     tft_->update(reinterpret_cast<uint16_t*>(const_cast<void*>(buffer)), false);
+#if defined(PERF_LOG)
+    const uint32_t flushCallUs = micros() - flushStartUs;
+    const uint32_t rectPixels = rectPixelCount(area);
+    ++perfWindow.flushCount;
+    perfWindow.rectPixels += rectPixels;
+    perfWindow.flushCallTimeUs += flushCallUs;
+    if (flushCallUs > perfWindow.maxFlushCallUs) {
+        perfWindow.maxFlushCallUs = flushCallUs;
+    }
+
+    if (area.x1 == 0 && area.y1 == 0 &&
+        area.x2 == static_cast<int32_t>(config_.width) - 1 &&
+        area.y2 == static_cast<int32_t>(config_.height) - 1) {
+        ++perfWindow.fullFrameRects;
+    }
+
+    if ((nowMs - perfWindow.startedAtMs) >= 1000) {
+        const auto snapshot = perfSnapshot();
+        const uint32_t avgFlushCallUs =
+            (perfWindow.flushCount > 0) ? (perfWindow.flushCallTimeUs / perfWindow.flushCount) : 0;
+
+        OC_LOG_INFO(
+            "[Perf][Display][ILI9341] flushes={} rectPx={} fullFrameRects={} "
+            "avgFlushCall={}us maxFlushCall={}us frames={} fps={} uploadAvg={}us "
+            "uploadMax={}us pixelsFrameAvg={} txAvg={} marginAvg={} diffSpeedUp={} "
+            "pixelsRatio={} tearRatio={}",
+            perfWindow.flushCount,
+            perfWindow.rectPixels,
+            perfWindow.fullFrameRects,
+            avgFlushCallUs,
+            perfWindow.maxFlushCallUs,
+            snapshot.frames,
+            snapshot.currentFps,
+            snapshot.uploadTimeUs.avg,
+            snapshot.uploadTimeUs.max,
+            snapshot.pixelsPerFrame.avg,
+            snapshot.transactionsPerFrame.avg,
+            snapshot.marginPerFrame.avg,
+            snapshot.diffSpeedUp,
+            snapshot.pixelsRatio,
+            snapshot.tearRatio
+        );
+
+        OC_LOG_INFO(
+            "[Perf][Display][ILI9341][Diff] diff1Computed={} diff1Overflow={} diff1SizeAvg={}B "
+            "diff1TimeAvg={}us diff2Computed={} diff2Overflow={} diff2SizeAvg={}B diff2TimeAvg={}us",
+            snapshot.diff1.computed,
+            snapshot.diff1.overflow,
+            snapshot.diff1.sizeBytes.avg,
+            snapshot.diff1.computeTimeUs.avg,
+            snapshot.diff2.computed,
+            snapshot.diff2.overflow,
+            snapshot.diff2.sizeBytes.avg,
+            snapshot.diff2.computeTimeUs.avg
+        );
+
+        resetPerfStats();
+        perfWindow = {};
+        perfWindow.startedAtMs = nowMs;
+    }
+#endif
 }
 
 FLASHMEM void Ili9341::waitAsyncComplete() {
