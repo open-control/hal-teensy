@@ -23,6 +23,7 @@ class UsbMidi : public interface::IMidi {
 public:
     static constexpr size_t DEFAULT_MAX_ACTIVE_NOTES = 32;
     static constexpr size_t OUTPUT_QUEUE_CAPACITY = 128;
+    static constexpr uint32_t DEFAULT_OUTPUT_DRAIN_BUDGET_US = 500;
 
     UsbMidi() = default;
     explicit UsbMidi(const UsbMidiConfig& config);
@@ -33,7 +34,9 @@ public:
 
     oc::type::Result<void> init() override;
     void update() override;
+    void pollInput() override;
     void serviceOutput() override;
+    void serviceOutput(uint32_t budgetUs) override;
 
     void sendCC(uint8_t channel, uint8_t cc, uint8_t value) override;
     void sendNoteOn(uint8_t channel, uint8_t note, uint8_t velocity) override;
@@ -107,7 +110,7 @@ private:
     bool enqueuePitchBend_(uint8_t channel, int16_t value);
     bool tryDequeueShortMessage_(QueuedShortMessage& message);
     void clearOutputQueue_();
-    void drainOutputQueue_();
+    void drainOutputQueue_(uint32_t budgetUs);
     void sendShortMessage_(const QueuedShortMessage& message);
     void maybeLogOutputQueueStats_();
     void markNoteActive(uint8_t channel, uint8_t note);

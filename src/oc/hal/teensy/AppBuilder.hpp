@@ -67,6 +67,7 @@ public:
         oc::log::setOutput(serialOutput());
         // Register global time provider for oc::time::millis()
         oc::time::setProvider(defaultTimeProvider);
+        oc::time::setMicrosProvider(defaultMicrosProvider);
         // Configure app-level time provider
         builder_.timeProvider(defaultTimeProvider);
     }
@@ -203,6 +204,10 @@ private:
 
     static uint32_t defaultTimeProvider() {
         return millis();
+    }
+
+    static uint32_t defaultMicrosProvider() {
+        return micros();
     }
 };
 

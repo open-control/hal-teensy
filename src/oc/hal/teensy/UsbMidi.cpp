@@ -60,7 +60,12 @@ FLASHMEM oc::type::Result<void> UsbMidi::init() {
 void UsbMidi::update() {
     if (!initialized_) return;
 
-    drainOutputQueue_();
+    pollInput();
+    serviceOutput();
+}
+
+void UsbMidi::pollInput() {
+    if (!initialized_) return;
 
     while (usbMIDI.read()) {
         const uint64_t timestampUs = nowUs_();
@@ -105,8 +110,12 @@ void UsbMidi::update() {
 }
 
 void UsbMidi::serviceOutput() {
+    serviceOutput(DEFAULT_OUTPUT_DRAIN_BUDGET_US);
+}
+
+void UsbMidi::serviceOutput(uint32_t budgetUs) {
     if (!initialized_) return;
-    drainOutputQueue_();
+    drainOutputQueue_(budgetUs);
     if (readIpsr() == 0U) {
         maybeLogOutputQueueStats_();
     }
@@ -265,7 +274,7 @@ void UsbMidi::clearOutputQueue_() {
     output_queue_count_ = 0;
 }
 
-void UsbMidi::drainOutputQueue_() {
+void UsbMidi::drainOutputQueue_(uint32_t budgetUs) {
     QueuedShortMessage message;
     if (!tryDequeueShortMessage_(message)) {
         return;
@@ -277,6 +286,10 @@ void UsbMidi::drainOutputQueue_() {
     do {
         sendShortMessage_(message);
         sentCount += 1U;
+
+        if ((static_cast<uint32_t>(nowUs_()) - drainStartUs) >= budgetUs) {
+            break;
+        }
     } while (tryDequeueShortMessage_(message));
 
     usbMIDI.send_now();
