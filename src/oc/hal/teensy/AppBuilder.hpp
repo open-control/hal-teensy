@@ -26,6 +26,7 @@
 
 #include <oc/app/AppBuilder.hpp>
 #include <oc/app/OpenControlApp.hpp>
+#include <oc/core/input/InputBindingTrace.hpp>
 #include <oc/hal/teensy/ButtonController.hpp>
 #include <oc/hal/teensy/EncoderController.hpp>
 #include <oc/hal/teensy/EncoderToolHardware.hpp>
@@ -36,6 +37,8 @@
 #include <oc/time/Time.hpp>
 
 #include <Arduino.h>
+
+#include <utility>
 
 namespace oc::hal::teensy {
 
@@ -177,6 +180,17 @@ public:
      */
     AppBuilder& inputConfig(const core::input::InputConfig& config) {
         builder_.inputConfig(config);
+        return *this;
+    }
+
+    /**
+     * @brief Install an optional input binding trace callback.
+     *
+     * This is intended for explicit validation builds. The normal firmware path
+     * leaves the callback unset, so input dispatch stays on the default path.
+     */
+    AppBuilder& inputTrace(core::input::InputBindingTraceCallback callback) {
+        builder_.inputTrace(std::move(callback));
         return *this;
     }
 
