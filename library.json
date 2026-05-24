@@ -12,7 +12,7 @@
   "platforms": ["teensy"],
   "dependencies": {
     "luni64/EncoderTool": "^3.2.0",
-    "vindar/ILI9341_T4": "^1.6.0"
+    "vindar/ILI9341_T4": "1.7.0"
   },
   "build": {
     "includeDir": "src",
