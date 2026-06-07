@@ -10,6 +10,7 @@
 ## Features
 
 - **USB MIDI** - Native Teensy USB MIDI support
+- **SD Filesystem** - Built-in Teensy 4.1 SDIO filesystem backend for named files and directories
 - **Rotary Encoders** - Via [EncoderTool](https://github.com/luni64/EncoderTool) with hardware interrupts
 - **Button Input** - Debounced GPIO with multiplexer support
 - **ILI9341 Display** - DMA-accelerated via [ILI9341_T4](https://github.com/vindar/ILI9341_T4)
@@ -124,6 +125,32 @@ app = oc::teensy::AppBuilder()
 
 - [example-teensy41-minimal](https://github.com/open-control/example-teensy41-minimal) - Headless MIDI controller
 - [example-teensy41-lvgl](https://github.com/open-control/example-teensy41-lvgl) - With ILI9341 display
+
+---
+
+## SD Filesystem Smoke Test
+
+`oc::hal::teensy::SDFileSystemBackend` implements the OpenControl `IFileSystem`
+contract on the Teensy 4.1 built-in SD slot. The backend is allocation-free:
+callers provide transfer buffers and directory listing streams entries through
+a visitor callback.
+
+The hardware smoke test is opt-in and disabled in normal builds. It creates a
+temporary `/oc-fs-smoke` directory, writes and reads a binary payload with CRC,
+lists the directory, renames the file, then removes the directory.
+
+```powershell
+$env:PLATFORMIO_BUILD_FLAGS="-DOC_HAL_TEENSY_SD_FILESYSTEM_SMOKE"
+pio run -e dev -t upload
+pio device monitor -b 115200
+Remove-Item Env:\PLATFORMIO_BUILD_FLAGS
+```
+
+Expected monitor tail:
+
+```text
+[oc-fs-smoke] OK bytes=24 crc=0x...
+```
 
 ---
 
