@@ -25,7 +25,7 @@ SDFileSystem filesystem;
 void setup() {
 #if defined(OC_HAL_TEENSY_SD_FILESYSTEM_SMOKE)
     Serial.begin(115200);
-    const uint32_t deadline = millis() + 2000;
+    const uint32_t deadline = millis() + 10000;
     while (!Serial && millis() < deadline) {}
     oc::hal::teensy::runSDFileSystemSmokeTest(filesystem, Serial);
 #endif
