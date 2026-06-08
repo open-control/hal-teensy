@@ -35,7 +35,11 @@ class UsbSerial : public interface::ITransport {
 public:
     UsbSerial() = default;
     explicit UsbSerial(const UsbSerialConfig& config)
-        : maxFrameSize_(config.maxFrameSize) {}
+        : maxFrameSize_(
+              config.maxFrameSize <= codec::COBS_MAX_FRAME_SIZE
+                  ? config.maxFrameSize
+                  : codec::COBS_MAX_FRAME_SIZE
+          ) {}
 
     ~UsbSerial() override = default;
 
@@ -81,13 +85,11 @@ public:
     void send(const uint8_t* data, size_t length) override {
         if (!initialized_ || length == 0) return;
         if (length > maxFrameSize_) return;  // Frame too large
+        if (codec::cobsMaxEncodedSize(length) > sizeof(encodeBuffer_)) return;
 
-        // COBS encode
-        uint8_t encoded[codec::cobsMaxEncodedSize(length)];
-        size_t encodedLen = codec::cobsEncode(data, length, encoded);
+        size_t encodedLen = codec::cobsEncode(data, length, encodeBuffer_);
 
-        // Transmit
-        Serial.write(encoded, encodedLen);
+        Serial.write(encodeBuffer_, encodedLen);
     }
 
     /**
@@ -106,8 +108,12 @@ public:
     }
 
 private:
+    static constexpr size_t ENCODE_BUFFER_SIZE =
+        codec::cobsMaxEncodedSize(codec::COBS_MAX_FRAME_SIZE);
+
     ReceiveCallback onReceive_;
     codec::CobsDecoder<> decoder_;
+    uint8_t encodeBuffer_[ENCODE_BUFFER_SIZE] = {};
     size_t maxFrameSize_ = codec::COBS_MAX_FRAME_SIZE;
     bool initialized_ = false;
 };

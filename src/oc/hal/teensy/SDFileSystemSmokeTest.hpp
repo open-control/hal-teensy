@@ -102,6 +102,7 @@ inline bool runSDFileSystemSmokeTest(SDFileSystemBackend& filesystem,
 
     constexpr const char* directory = "/oc-fs-smoke";
     constexpr const char* originalPath = "/oc-fs-smoke/payload.bin";
+    constexpr const char* sessionPath = "/oc-fs-smoke/session.bin";
     constexpr const char* renamedPath = "/oc-fs-smoke/payload-renamed.bin";
     constexpr const char* originalName = "payload.bin";
     constexpr const char* renamedName = "payload-renamed.bin";
@@ -144,6 +145,46 @@ inline bool runSDFileSystemSmokeTest(SDFileSystemBackend& filesystem,
     current.readCrc = detail::crc32Update(0, buffer, current.bytesRead);
     if (current.bytesRead != sizeof(payload) || current.expectedCrc != current.readCrc) {
         out.println("[oc-fs-smoke] CRC mismatch");
+        return false;
+    }
+
+    constexpr uint8_t sessionPayload[] = {
+        0x10, 0x11, 0x12, 0x13, 0x20, 0x21, 0x22, 0x23,
+        0x30, 0x31, 0x32, 0x33, 0x40, 0x41, 0x42, 0x43,
+        0x50, 0x51, 0x52, 0x53, 0x60, 0x61, 0x62, 0x63,
+        0x70, 0x71, 0x72, 0x73, 0x80, 0x81, 0x82, 0x83,
+    };
+
+    auto beginWrite = filesystem.beginWrite(sessionPath, sizeof(sessionPayload));
+    if (!detail::requireResult(out, "begin session write", beginWrite)) {
+        return false;
+    }
+    auto appendA = filesystem.appendWrite(sessionPayload, 11);
+    if (!detail::requireResult(out, "append session write A", appendA)) {
+        filesystem.abortWrite();
+        return false;
+    }
+    auto appendB = filesystem.appendWrite(sessionPayload + 11, sizeof(sessionPayload) - 11);
+    if (!detail::requireResult(out, "append session write B", appendB)) {
+        filesystem.abortWrite();
+        return false;
+    }
+    auto finishWrite = filesystem.finishWrite();
+    if (!detail::requireResult(out, "finish session write", finishWrite)) {
+        return false;
+    }
+
+    uint8_t sessionBuffer[sizeof(sessionPayload)] = {};
+    auto sessionRead = filesystem.read(sessionPath, 0, sessionBuffer, sizeof(sessionBuffer));
+    if (!detail::requireResult(out, "read session write", sessionRead)) {
+        return false;
+    }
+    const uint32_t sessionExpectedCrc =
+        detail::crc32Update(0, sessionPayload, sizeof(sessionPayload));
+    const uint32_t sessionReadCrc =
+        detail::crc32Update(0, sessionBuffer, sessionRead.value());
+    if (sessionRead.value() != sizeof(sessionPayload) || sessionExpectedCrc != sessionReadCrc) {
+        out.println("[oc-fs-smoke] session CRC mismatch");
         return false;
     }
 
