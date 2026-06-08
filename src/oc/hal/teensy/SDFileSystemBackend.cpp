@@ -387,6 +387,151 @@ FLASHMEM oc::type::Result<void> SDFileSystemBackend::flush(const char* path) {
     return oc::type::Result<void>::ok();
 }
 
+FLASHMEM oc::type::Result<void> SDFileSystemBackend::beginWrite(
+    const char* path,
+    uint32_t expectedSize
+) {
+    if (writeActive_) {
+        return oc::type::Result<void>::err(
+            {oc::type::ErrorCode::INVALID_STATE, "write stream already active"}
+        );
+    }
+
+    char normalized[PATH_BUFFER_SIZE] = {};
+    auto pathResult = normalizePath_(path, normalized, sizeof(normalized));
+    if (!pathResult) {
+        return pathResult;
+    }
+    if (isRoot_(normalized)) {
+        return oc::type::Result<void>::err(
+            {oc::type::ErrorCode::INVALID_ARGUMENT, "cannot write filesystem root"}
+        );
+    }
+
+    char parent[PATH_BUFFER_SIZE] = {};
+    auto parentResult = parentPath_(normalized, parent, sizeof(parent));
+    if (!parentResult) {
+        return parentResult;
+    }
+
+    FsFile parentDirectory = SD.sdfs.open(parent, O_RDONLY);
+    if (!parentDirectory.isOpen()) {
+        return oc::type::Result<void>::err(
+            {oc::type::ErrorCode::RESOURCE_NOT_FOUND, "parent directory not found"}
+        );
+    }
+    const bool parentIsDirectory = parentDirectory.isDir();
+    parentDirectory.close();
+    if (!parentIsDirectory) {
+        return oc::type::Result<void>::err(
+            {oc::type::ErrorCode::INVALID_ARGUMENT, "parent is not a directory"}
+        );
+    }
+
+    FsFile existing = SD.sdfs.open(normalized, O_RDONLY);
+    if (existing.isOpen()) {
+        const bool isFile = existing.isFile();
+        existing.close();
+        if (!isFile) {
+            return oc::type::Result<void>::err(
+                {oc::type::ErrorCode::INVALID_ARGUMENT, "path is a directory"}
+            );
+        }
+        if (!SD.sdfs.remove(normalized)) {
+            return oc::type::Result<void>::err(
+                {oc::type::ErrorCode::STORAGE_WRITE_FAILED, "replace existing file failed"}
+            );
+        }
+    }
+
+    if (!writeStream_.open(normalized, O_RDWR | O_CREAT | O_TRUNC)) {
+        return oc::type::Result<void>::err(
+            {oc::type::ErrorCode::STORAGE_WRITE_FAILED, "open write stream failed"}
+        );
+    }
+    if (expectedSize > 0) {
+        (void)writeStream_.preAllocate(expectedSize);
+        (void)writeStream_.seekSet(0);
+    }
+
+    writeExpectedSize_ = expectedSize;
+    writeBytes_ = 0;
+    writeActive_ = true;
+    return oc::type::Result<void>::ok();
+}
+
+FLASHMEM oc::type::Result<size_t> SDFileSystemBackend::appendWrite(
+    const uint8_t* data,
+    size_t size
+) {
+    if (!data && size > 0) {
+        return oc::type::Result<size_t>::err(
+            {oc::type::ErrorCode::INVALID_ARGUMENT, "null write buffer"}
+        );
+    }
+    if (!writeActive_ || !writeStream_.isOpen()) {
+        return oc::type::Result<size_t>::err(
+            {oc::type::ErrorCode::INVALID_STATE, "write stream is not active"}
+        );
+    }
+    if (writeBytes_ + size > writeExpectedSize_) {
+        return oc::type::Result<size_t>::err(
+            {oc::type::ErrorCode::INVALID_ARGUMENT, "write exceeds expected size"}
+        );
+    }
+    if (size == 0) {
+        return oc::type::Result<size_t>::ok(0);
+    }
+
+    if (!writeStream_.seekSet(writeBytes_)) {
+        return oc::type::Result<size_t>::err(
+            {oc::type::ErrorCode::STORAGE_WRITE_FAILED, "seek write stream failed"}
+        );
+    }
+
+    const size_t written = writeStream_.write(data, size);
+    if (written != size) {
+        return oc::type::Result<size_t>::err(
+            {oc::type::ErrorCode::STORAGE_WRITE_FAILED, "write stream failed"}
+        );
+    }
+
+    writeBytes_ += written;
+    return oc::type::Result<size_t>::ok(written);
+}
+
+FLASHMEM oc::type::Result<void> SDFileSystemBackend::finishWrite() {
+    if (!writeActive_ || !writeStream_.isOpen()) {
+        return oc::type::Result<void>::err(
+            {oc::type::ErrorCode::INVALID_STATE, "write stream is not active"}
+        );
+    }
+    if (writeBytes_ != writeExpectedSize_) {
+        abortWrite();
+        return oc::type::Result<void>::err(
+            {oc::type::ErrorCode::INVALID_STATE, "write stream size mismatch"}
+        );
+    }
+
+    const bool truncated = writeStream_.truncate(writeExpectedSize_);
+    const bool synced = truncated && writeStream_.sync();
+    writeStream_.close();
+    resetWriteStream_();
+    if (!synced) {
+        return oc::type::Result<void>::err(
+            {oc::type::ErrorCode::STORAGE_WRITE_FAILED, "finish write stream failed"}
+        );
+    }
+    return oc::type::Result<void>::ok();
+}
+
+FLASHMEM void SDFileSystemBackend::abortWrite() {
+    if (writeStream_.isOpen()) {
+        writeStream_.close();
+    }
+    resetWriteStream_();
+}
+
 FLASHMEM oc::type::Result<void> SDFileSystemBackend::ensureAvailable_() const {
     if (!initialized_) {
         return oc::type::Result<void>::err(
@@ -666,6 +811,12 @@ FLASHMEM bool SDFileSystemBackend::joinPath_(
     std::memcpy(out + write, name, nameLength);
     out[write + nameLength] = '\0';
     return true;
+}
+
+FLASHMEM void SDFileSystemBackend::resetWriteStream_() {
+    writeExpectedSize_ = 0;
+    writeBytes_ = 0;
+    writeActive_ = false;
 }
 
 }  // namespace oc::hal::teensy

@@ -41,6 +41,10 @@ public:
                                    const uint8_t* data,
                                    size_t size) override;
     oc::type::Result<void> flush(const char* path) override;
+    oc::type::Result<void> beginWrite(const char* path, uint32_t expectedSize) override;
+    oc::type::Result<size_t> appendWrite(const uint8_t* data, size_t size) override;
+    oc::type::Result<void> finishWrite() override;
+    void abortWrite() override;
 
 private:
     static constexpr size_t PATH_BUFFER_SIZE = interface::FILESYSTEM_MAX_PATH_LENGTH + 1;
@@ -55,7 +59,12 @@ private:
     static void fillEntry_(FsFile& file, interface::DirectoryEntry& entry);
     oc::type::Result<void> removePath_(const char* path, bool recursive, uint8_t depth);
     static bool joinPath_(const char* parent, const char* name, char* out, size_t outSize);
+    void resetWriteStream_();
 
+    FsFile writeStream_;
+    uint32_t writeExpectedSize_ = 0;
+    uint32_t writeBytes_ = 0;
+    bool writeActive_ = false;
     bool initialized_ = false;
 };
 
