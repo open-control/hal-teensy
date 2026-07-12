@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <array>
-#include <vector>
 
 #include <oc/type/Result.hpp>
 #include <oc/interface/IMidi.hpp>
@@ -12,21 +11,15 @@
 
 namespace oc::hal::teensy {
 
-struct UsbMidiConfig {
-    size_t maxActiveNotes = 32;
-};
-
 /**
  * @brief Teensy USB MIDI driver
  */
 class UsbMidi : public interface::IMidi {
 public:
-    static constexpr size_t DEFAULT_MAX_ACTIVE_NOTES = 32;
     static constexpr size_t OUTPUT_QUEUE_CAPACITY = 128;
     static constexpr uint32_t DEFAULT_OUTPUT_DRAIN_BUDGET_US = 500;
 
     UsbMidi() = default;
-    explicit UsbMidi(const UsbMidiConfig& config);
     ~UsbMidi() override = default;
 
     UsbMidi(const UsbMidi&) = delete;
@@ -61,24 +54,6 @@ public:
     void setOnContinue(RealtimeCallback cb) override;
 
 private:
-    struct OutputQueueStatsWindow {
-        uint32_t windowStartMs = 0;
-        uint32_t enqueuedCount = 0;
-        uint32_t sentCount = 0;
-        uint32_t droppedCount = 0;
-        uint32_t maxDepth = 0;
-        uint32_t maxDrainUs = 0;
-
-        void reset(uint32_t nowMs) {
-            windowStartMs = nowMs;
-            enqueuedCount = 0;
-            sentCount = 0;
-            droppedCount = 0;
-            maxDepth = 0;
-            maxDrainUs = 0;
-        }
-    };
-
     enum class ShortMessageType : uint8_t {
         ControlChange,
         NoteOn,
@@ -100,11 +75,12 @@ private:
         int16_t signedValue = 0;
     };
 
-    struct ActiveNote {
-        uint8_t channel;
-        uint8_t note;
-        bool active;
-    };
+    static constexpr uint8_t MIDI_CHANNEL_COUNT = 16;
+    static constexpr uint8_t MIDI_NOTE_COUNT = 128;
+    static constexpr uint8_t ACTIVE_NOTE_WORD_BITS = 32;
+    static constexpr uint8_t ACTIVE_NOTE_WORD_COUNT =
+        MIDI_NOTE_COUNT / ACTIVE_NOTE_WORD_BITS;
+    using ActiveNoteMask = std::array<uint32_t, ACTIVE_NOTE_WORD_COUNT>;
 
     bool enqueueShortMessage_(ShortMessageType type, uint8_t channel, uint8_t data1, uint8_t data2);
     bool enqueuePitchBend_(uint8_t channel, int16_t value);
@@ -112,7 +88,7 @@ private:
     void clearOutputQueue_();
     void drainOutputQueue_(uint32_t budgetUs);
     void sendShortMessage_(const QueuedShortMessage& message);
-    void maybeLogOutputQueueStats_();
+    void reportOutputDrops_();
     void markNoteActive(uint8_t channel, uint8_t note);
     void markNoteInactive(uint8_t channel, uint8_t note);
     uint64_t nowUs_();
@@ -126,13 +102,13 @@ private:
     RealtimeCallback on_stop_;
     RealtimeCallback on_continue_;
 
-    std::vector<ActiveNote> active_notes_;
+    std::array<ActiveNoteMask, MIDI_CHANNEL_COUNT> active_notes_{};
     std::array<QueuedShortMessage, OUTPUT_QUEUE_CAPACITY> output_queue_{};
     size_t output_queue_head_ = 0;
     size_t output_queue_tail_ = 0;
     size_t output_queue_count_ = 0;
-    OutputQueueStatsWindow output_stats_{};
-    size_t max_active_notes_ = DEFAULT_MAX_ACTIVE_NOTES;
+    volatile uint32_t dropped_output_count_ = 0;
+    uint32_t last_drop_report_ms_ = 0;
     bool initialized_ = false;
     HighResolutionClock clock_{};
 };
