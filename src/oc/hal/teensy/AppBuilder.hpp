@@ -153,6 +153,8 @@ public:
      * @param defs Array of button definitions from Config
      * @param mux Multiplexer for reading muxed buttons
      * @param debounceMs Debounce time in milliseconds (default: 5ms)
+     * @param muxReadsPerUpdate Maximum multiplexed buttons sampled per app
+     *        update; zero preserves full-scan behavior
      * @return Reference to this builder for chaining
      *
      * @code
@@ -163,8 +165,15 @@ public:
     template <size_t N>
     AppBuilder& buttons(const std::array<embedded::ButtonDef, N>& defs,
                         interface::IMultiplexer& mux,
-                        uint8_t debounceMs = 5) {
-        builder_.buttons(std::make_unique<ButtonController<N>>(defs, gpio(), &mux, debounceMs));
+                        uint8_t debounceMs = 5,
+                        uint8_t muxReadsPerUpdate = 0) {
+        builder_.buttons(std::make_unique<ButtonController<N>>(
+            defs,
+            gpio(),
+            &mux,
+            debounceMs,
+            muxReadsPerUpdate
+        ));
         return *this;
     }
 

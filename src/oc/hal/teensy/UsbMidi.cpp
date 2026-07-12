@@ -1,9 +1,8 @@
 #include "UsbMidi.hpp"
 
-#include <algorithm>
-
 #include <Arduino.h>
 
+#include <oc/diagnostics/Performance.hpp>
 #include <oc/log/Log.hpp>
 
 namespace oc::hal::teensy {
@@ -42,16 +41,8 @@ private:
 
 }  // namespace
 
-FLASHMEM UsbMidi::UsbMidi(const UsbMidiConfig& config)
-    : max_active_notes_(config.maxActiveNotes) {}
-
 FLASHMEM oc::type::Result<void> UsbMidi::init() {
     if (initialized_) return oc::type::Result<void>::ok();
-
-    active_notes_.resize(max_active_notes_);
-    for (auto& note : active_notes_) {
-        note.active = false;
-    }
 
     initialized_ = true;
     return oc::type::Result<void>::ok();
@@ -106,7 +97,7 @@ void UsbMidi::pollInput() {
         }
     }
 
-    maybeLogOutputQueueStats_();
+    reportOutputDrops_();
 }
 
 void UsbMidi::serviceOutput() {
@@ -117,29 +108,22 @@ void UsbMidi::serviceOutput(uint32_t budgetUs) {
     if (!initialized_) return;
     drainOutputQueue_(budgetUs);
     if (readIpsr() == 0U) {
-        maybeLogOutputQueueStats_();
+        reportOutputDrops_();
     }
 }
 
 void UsbMidi::markNoteActive(uint8_t channel, uint8_t note) {
-    for (auto& slot : active_notes_) {
-        if (!slot.active) {
-            slot = {channel, note, true};
-            return;
-        }
-    }
-    if (!active_notes_.empty()) {
-        active_notes_[0] = {channel, note, true};
-    }
+    channel &= 0x0FU;
+    note &= 0x7FU;
+    active_notes_[channel][note / ACTIVE_NOTE_WORD_BITS] |=
+        (1UL << (note % ACTIVE_NOTE_WORD_BITS));
 }
 
 void UsbMidi::markNoteInactive(uint8_t channel, uint8_t note) {
-    for (auto& slot : active_notes_) {
-        if (slot.active && slot.channel == channel && slot.note == note) {
-            slot.active = false;
-            return;
-        }
-    }
+    channel &= 0x0FU;
+    note &= 0x7FU;
+    active_notes_[channel][note / ACTIVE_NOTE_WORD_BITS] &=
+        ~(1UL << (note % ACTIVE_NOTE_WORD_BITS));
 }
 
 void UsbMidi::sendCC(uint8_t channel, uint8_t cc, uint8_t value) {
@@ -189,10 +173,14 @@ void UsbMidi::sendContinue() {
 void UsbMidi::allNotesOff() {
     clearOutputQueue_();
 
-    for (auto& slot : active_notes_) {
-        if (slot.active) {
-            usbMIDI.sendNoteOff(slot.note, 0, slot.channel + 1);
-            slot.active = false;
+    for (uint8_t channel = 0; channel < active_notes_.size(); ++channel) {
+        auto& activeNotes = active_notes_[channel];
+        for (uint8_t note = 0; note < MIDI_NOTE_COUNT; ++note) {
+            const uint32_t noteBit = 1UL << (note % ACTIVE_NOTE_WORD_BITS);
+            auto& word = activeNotes[note / ACTIVE_NOTE_WORD_BITS];
+            if ((word & noteBit) == 0) continue;
+            usbMIDI.sendNoteOff(note, 0, channel + 1);
+            word &= ~noteBit;
         }
     }
 
@@ -213,7 +201,7 @@ bool UsbMidi::enqueueShortMessage_(ShortMessageType type,
 
     InterruptLock lock;
     if (output_queue_count_ >= output_queue_.size()) {
-        output_stats_.droppedCount += 1U;
+        dropped_output_count_ = dropped_output_count_ + 1U;
         return false;
     }
 
@@ -225,9 +213,6 @@ bool UsbMidi::enqueueShortMessage_(ShortMessageType type,
     };
     output_queue_tail_ = (output_queue_tail_ + 1U) % output_queue_.size();
     output_queue_count_ += 1U;
-    output_stats_.enqueuedCount += 1U;
-    output_stats_.maxDepth =
-        std::max(output_stats_.maxDepth, static_cast<uint32_t>(output_queue_count_));
     return true;
 }
 
@@ -238,7 +223,7 @@ bool UsbMidi::enqueuePitchBend_(uint8_t channel, int16_t value) {
 
     InterruptLock lock;
     if (output_queue_count_ >= output_queue_.size()) {
-        output_stats_.droppedCount += 1U;
+        dropped_output_count_ = dropped_output_count_ + 1U;
         return false;
     }
 
@@ -249,9 +234,6 @@ bool UsbMidi::enqueuePitchBend_(uint8_t channel, int16_t value) {
     };
     output_queue_tail_ = (output_queue_tail_ + 1U) % output_queue_.size();
     output_queue_count_ += 1U;
-    output_stats_.enqueuedCount += 1U;
-    output_stats_.maxDepth =
-        std::max(output_stats_.maxDepth, static_cast<uint32_t>(output_queue_count_));
     return true;
 }
 
@@ -281,11 +263,15 @@ void UsbMidi::drainOutputQueue_(uint32_t budgetUs) {
     }
 
     const uint32_t drainStartUs = static_cast<uint32_t>(nowUs_());
+#if OC_ENABLE_STATS
     uint32_t sentCount = 0;
+#endif
 
     do {
         sendShortMessage_(message);
+#if OC_ENABLE_STATS
         sentCount += 1U;
+#endif
 
         if ((static_cast<uint32_t>(nowUs_()) - drainStartUs) >= budgetUs) {
             break;
@@ -293,11 +279,12 @@ void UsbMidi::drainOutputQueue_(uint32_t budgetUs) {
     } while (tryDequeueShortMessage_(message));
 
     usbMIDI.send_now();
-    output_stats_.sentCount += sentCount;
-    output_stats_.maxDrainUs = std::max(
-        output_stats_.maxDrainUs,
-        static_cast<uint32_t>(nowUs_()) - drainStartUs
-    );
+#if OC_ENABLE_STATS
+    const uint32_t elapsedUs = static_cast<uint32_t>(nowUs_()) - drainStartUs;
+    if (readIpsr() == 0U) {
+        OC_PERF_RECORD("midi.usb-output-drain", elapsedUs, sentCount, budgetUs);
+    }
+#endif
 }
 
 void UsbMidi::sendShortMessage_(const QueuedShortMessage& message) {
@@ -337,27 +324,24 @@ void UsbMidi::sendShortMessage_(const QueuedShortMessage& message) {
     }
 }
 
-void UsbMidi::maybeLogOutputQueueStats_() {
+void UsbMidi::reportOutputDrops_() {
+    if (dropped_output_count_ == 0) return;
+
     const uint32_t nowMs = millis();
-    if (output_stats_.windowStartMs == 0) {
-        output_stats_.reset(nowMs);
+    if (last_drop_report_ms_ != 0 && (nowMs - last_drop_report_ms_) < 1000U) {
         return;
     }
 
-    if ((nowMs - output_stats_.windowStartMs) < 1000U) {
-        return;
+    uint32_t dropped = 0;
+    {
+        InterruptLock lock;
+        dropped = dropped_output_count_;
+        dropped_output_count_ = 0;
     }
-
-    if (output_stats_.droppedCount > 0 || output_stats_.maxDepth >= 16U || output_stats_.maxDrainUs >= 1000U) {
-        OC_LOG_INFO("[Perf][UsbMidiOut] enq={} sent={} drop={} maxDepth={} maxDrain={}us",
-                    output_stats_.enqueuedCount,
-                    output_stats_.sentCount,
-                    output_stats_.droppedCount,
-                    output_stats_.maxDepth,
-                    output_stats_.maxDrainUs);
+    if (dropped > 0) {
+        last_drop_report_ms_ = nowMs;
+        OC_LOG_WARN("UsbMidi output queue dropped {} message(s)", dropped);
     }
-
-    output_stats_.reset(nowMs);
 }
 
 FLASHMEM void UsbMidi::setOnCC(CCCallback cb) { on_cc_ = cb; }

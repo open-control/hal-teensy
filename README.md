@@ -89,7 +89,7 @@ constexpr std::array<oc::common::ButtonDef, 2> BUTTONS = {{
 | `.midi()` | Enable USB MIDI output |
 | `.encoders(array)` | Configure encoders from definition array |
 | `.buttons(array, debounceMs)` | Configure buttons (default 5ms debounce) |
-| `.buttons(array, mux, debounceMs)` | Configure buttons with multiplexer |
+| `.buttons(array, mux, debounceMs, muxReadsPerUpdate)` | Configure multiplexed buttons; a zero read budget keeps full-scan behavior |
 | `.inputConfig(config)` | Set gesture timing (long press, double tap) |
 
 ### Implicit Conversion

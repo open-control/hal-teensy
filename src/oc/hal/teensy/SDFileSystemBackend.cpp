@@ -483,12 +483,6 @@ FLASHMEM oc::type::Result<size_t> SDFileSystemBackend::appendWrite(
         return oc::type::Result<size_t>::ok(0);
     }
 
-    if (!writeStream_.seekSet(writeBytes_)) {
-        return oc::type::Result<size_t>::err(
-            {oc::type::ErrorCode::STORAGE_WRITE_FAILED, "seek write stream failed"}
-        );
-    }
-
     const size_t written = writeStream_.write(data, size);
     if (written != size) {
         return oc::type::Result<size_t>::err(

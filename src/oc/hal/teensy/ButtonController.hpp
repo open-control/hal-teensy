@@ -20,8 +20,13 @@ public:
         const std::array<ButtonDef, N>& buttons,
         interface::IGpio& gpio,
         interface::IMultiplexer* mux = nullptr,
-        uint8_t debounceMs = 5)
-        : buttons_(buttons), gpio_(gpio), mux_(mux), debounce_ms_(debounceMs) {
+        uint8_t debounceMs = 5,
+        uint8_t muxReadsPerUpdate = 0)
+        : buttons_(buttons)
+        , gpio_(gpio)
+        , mux_(mux)
+        , debounce_ms_(debounceMs)
+        , mux_reads_per_update_(muxReadsPerUpdate) {
         states_.fill(false);
         last_change_.fill(0);
     }
@@ -39,24 +44,14 @@ public:
     void update(uint32_t currentTimeMs) override {
         if (!initialized_) return;
 
+        // Direct GPIO is cheap and remains sampled on every app tick.
         for (size_t i = 0; i < N; ++i) {
-            bool raw = readPin(buttons_[i]);
-            bool pressed = buttons_[i].activeLow ? !raw : raw;
-
-            if (pressed != states_[i]) {
-                if (currentTimeMs - last_change_[i] >= debounce_ms_) {
-                    states_[i] = pressed;
-                    last_change_[i] = currentTimeMs;
-
-                    if (callback_) {
-                        callback_(
-                            buttons_[i].id,
-                            pressed ? oc::type::ButtonEvent::PRESSED
-                                    : oc::type::ButtonEvent::RELEASED);
-                    }
-                }
+            if (buttons_[i].pin.source == common::embedded::GpioPin::Source::MCU) {
+                sampleButton_(i, currentTimeMs);
             }
         }
+
+        sampleMuxButtons_(currentTimeMs);
     }
 
     bool isPressed(oc::type::ButtonID id) const override {
@@ -69,6 +64,57 @@ public:
     void setCallback(oc::type::ButtonCallback cb) override { callback_ = cb; }
 
 private:
+    void sampleButton_(size_t index, uint32_t currentTimeMs) {
+        const auto& button = buttons_[index];
+        const bool raw = readPin(button);
+        const bool pressed = button.activeLow ? !raw : raw;
+
+        if (pressed == states_[index] ||
+            currentTimeMs - last_change_[index] < debounce_ms_) {
+            return;
+        }
+
+        states_[index] = pressed;
+        last_change_[index] = currentTimeMs;
+        if (callback_) {
+            callback_(
+                button.id,
+                pressed ? oc::type::ButtonEvent::PRESSED
+                        : oc::type::ButtonEvent::RELEASED
+            );
+        }
+    }
+
+    void sampleMuxButtons_(uint32_t currentTimeMs) {
+        if (!mux_) return;
+
+        // A zero budget preserves the historical full-scan behavior. Products
+        // with a high app cadence can opt into bounded round-robin sampling.
+        if (mux_reads_per_update_ == 0) {
+            for (size_t i = 0; i < N; ++i) {
+                if (buttons_[i].pin.source == common::embedded::GpioPin::Source::MUX) {
+                    sampleButton_(i, currentTimeMs);
+                }
+            }
+            return;
+        }
+
+        if constexpr (N > 0) {
+            uint8_t sampled = 0;
+            for (size_t scanned = 0;
+                 scanned < N && sampled < mux_reads_per_update_;
+                 ++scanned) {
+                const size_t index = next_mux_index_;
+                next_mux_index_ = (next_mux_index_ + 1U) % N;
+                if (buttons_[index].pin.source != common::embedded::GpioPin::Source::MUX) {
+                    continue;
+                }
+                sampleButton_(index, currentTimeMs);
+                ++sampled;
+            }
+        }
+    }
+
     bool readPin(const ButtonDef& btn) {
         if (btn.pin.source == common::embedded::GpioPin::Source::MCU) {
             return gpio_.digitalRead(btn.pin.pin);
@@ -88,6 +134,8 @@ private:
     std::array<bool, N> states_;
     std::array<uint32_t, N> last_change_;
     oc::type::ButtonCallback callback_;
+    size_t next_mux_index_ = 0;
+    uint8_t mux_reads_per_update_ = 0;
     bool initialized_ = false;
 };
 

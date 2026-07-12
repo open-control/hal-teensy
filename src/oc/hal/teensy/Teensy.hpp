@@ -65,6 +65,8 @@ auto makeEncoderController(const std::array<embedded::EncoderDef, N>& defs) {
  * @param defs Button definitions
  * @param mux Optional multiplexer for muxed buttons
  * @param debounceMs Debounce time in milliseconds
+ * @param muxReadsPerUpdate Maximum multiplexed buttons sampled per update;
+ *        zero preserves full-scan behavior
  * @return Unique pointer to button controller
  *
  * @code
@@ -75,8 +77,15 @@ template <size_t N>
 auto makeButtonController(
     const std::array<embedded::ButtonDef, N>& defs,
     interface::IMultiplexer* mux = nullptr,
-    uint8_t debounceMs = 5) {
-    return std::make_unique<ButtonController<N>>(defs, gpio(), mux, debounceMs);
+    uint8_t debounceMs = 5,
+    uint8_t muxReadsPerUpdate = 0) {
+    return std::make_unique<ButtonController<N>>(
+        defs,
+        gpio(),
+        mux,
+        debounceMs,
+        muxReadsPerUpdate
+    );
 }
 
 /**
