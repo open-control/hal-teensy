@@ -63,9 +63,9 @@ public:
     void update() override {
         if (!initialized_) return;
         for (size_t i = 0; i < N; ++i) {
-            auto pending = encoders_logic_[i]->flush();
-            if (pending.has_value() && callback_) {
-                callback_(defs_[i].id, pending.value());
+            auto value = encoders_logic_[i]->consumePublishedDeltas();
+            if (value.has_value() && callback_) {
+                callback_(defs_[i].id, value.value());
             }
         }
     }
@@ -125,7 +125,7 @@ private:
 
     static void onDelta(void* ctx, int32_t delta) {
         auto* c = static_cast<Context*>(ctx);
-        c->controller->encoders_logic_[c->index]->processDelta(delta);
+        c->controller->encoders_logic_[c->index]->publishDeltaFromISR(delta);
     }
 
     int findIndex(oc::type::EncoderID id) const {

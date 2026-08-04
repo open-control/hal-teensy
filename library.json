@@ -16,6 +16,14 @@
   },
   "build": {
     "includeDir": "src",
-    "srcFilter": ["+<**/*.cpp>", "-<main.cpp>"]
+    "srcFilter": [
+      "+<oc/hal/teensy/BuiltInSD.cpp>",
+      "+<oc/hal/teensy/HighResolutionClock.cpp>",
+      "+<oc/hal/teensy/Ili9341.cpp>",
+      "+<oc/hal/teensy/QualificationTelemetry.cpp>",
+      "+<oc/hal/teensy/SDCardBackend.cpp>",
+      "+<oc/hal/teensy/SDFileSystemBackend.cpp>",
+      "+<oc/hal/teensy/UsbMidi.cpp>"
+    ]
   }
 }

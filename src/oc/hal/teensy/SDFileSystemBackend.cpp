@@ -3,16 +3,63 @@
 #include <cstring>
 
 #include <config/PlatformCompat.hpp>
+#include <oc/log/Log.hpp>
+
+#include "BuiltInSD.hpp"
 
 namespace oc::hal::teensy {
 
+namespace {
+
+constexpr size_t SDIO_PSRAM_STAGING_SIZE = 512U;
+
+FLASHMEM bool isExternalRamAddress(const void* address) {
+#if defined(__IMXRT1062__)
+    return (reinterpret_cast<uintptr_t>(address) >> 28U) == 0x7U;
+#else
+    (void)address;
+    return false;
+#endif
+}
+
+/**
+ * The Teensy SDIO DMA path cannot safely consume every FlexSPI PSRAM span used
+ * by the full product image. Stage only external-memory sources through one
+ * native SD sector in DTCM; internal-memory callers keep the zero-copy path.
+ */
+FLASHMEM size_t writeStable(FsFile& file, const uint8_t* data, size_t size) {
+    if (!isExternalRamAddress(data)) {
+        return file.write(data, size);
+    }
+
+    alignas(4) uint8_t staging[SDIO_PSRAM_STAGING_SIZE];
+    size_t total = 0;
+    while (total < size) {
+        const size_t remaining = size - total;
+        const size_t chunk = remaining < sizeof(staging) ? remaining : sizeof(staging);
+        std::memcpy(staging, data + total, chunk);
+        const size_t written = file.write(staging, chunk);
+        total += written;
+        if (written != chunk) break;
+    }
+    return total;
+}
+
+}  // namespace
+
 FLASHMEM oc::type::Result<void> SDFileSystemBackend::init() {
     if (initialized_) {
-        return oc::type::Result<void>::ok();
-    }
-    if (!SD.begin(BUILTIN_SDCARD)) {
+        if (available()) return oc::type::Result<void>::ok();
+        if (detail::reinitializeBuiltInSD()) {
+            return oc::type::Result<void>::ok();
+        }
         return oc::type::Result<void>::err(
-            {oc::type::ErrorCode::HARDWARE_INIT_FAILED, "SD.begin failed"}
+            {oc::type::ErrorCode::HARDWARE_INIT_FAILED, "SDIO DMA reopen failed"}
+        );
+    }
+    if (!detail::initializeBuiltInSD()) {
+        return oc::type::Result<void>::err(
+            {oc::type::ErrorCode::HARDWARE_INIT_FAILED, "SDIO DMA init failed"}
         );
     }
 
@@ -21,7 +68,7 @@ FLASHMEM oc::type::Result<void> SDFileSystemBackend::init() {
 }
 
 FLASHMEM bool SDFileSystemBackend::available() const {
-    return initialized_ && SD.mediaPresent();
+    return initialized_ && detail::builtInSDMediaPresent();
 }
 
 FLASHMEM oc::type::Result<interface::FileInfo> SDFileSystemBackend::stat(const char* path) {
@@ -345,7 +392,7 @@ FLASHMEM oc::type::Result<size_t> SDFileSystemBackend::write(
         );
     }
 
-    const size_t written = file.write(data, size);
+    const size_t written = writeStable(file, data, size);
     const bool synced = file.sync();
     file.close();
     if (written != size || !synced) {
@@ -445,13 +492,37 @@ FLASHMEM oc::type::Result<void> SDFileSystemBackend::beginWrite(
     }
 
     if (!writeStream_.open(normalized, O_RDWR | O_CREAT | O_TRUNC)) {
+        OC_LOG_ERROR(
+            "[SDFileSystem] open stream failed sdError={} sdData={}",
+            SD.sdfs.sdErrorCode(),
+            SD.sdfs.sdErrorData()
+        );
         return oc::type::Result<void>::err(
             {oc::type::ErrorCode::STORAGE_WRITE_FAILED, "open write stream failed"}
         );
     }
     if (expectedSize > 0) {
-        (void)writeStream_.preAllocate(expectedSize);
-        (void)writeStream_.seekSet(0);
+        const bool preallocated = writeStream_.preAllocate(expectedSize);
+        const bool rewound = preallocated && writeStream_.seekSet(0);
+        if (!preallocated || !rewound) {
+            OC_LOG_ERROR(
+                "[SDFileSystem] prepare stream failed bytes={} prealloc={} rewind={} "
+                "writeError={} sdError={} sdData={}",
+                expectedSize,
+                preallocated,
+                rewound,
+                writeStream_.getWriteError(),
+                SD.sdfs.sdErrorCode(),
+                SD.sdfs.sdErrorData()
+            );
+            writeStream_.close();
+            resetWriteStream_();
+            return oc::type::Result<void>::err(
+                {oc::type::ErrorCode::STORAGE_WRITE_FAILED,
+                 preallocated ? "rewind write stream failed"
+                              : "preallocate write stream failed"}
+            );
+        }
     }
 
     writeExpectedSize_ = expectedSize;
@@ -483,8 +554,34 @@ FLASHMEM oc::type::Result<size_t> SDFileSystemBackend::appendWrite(
         return oc::type::Result<size_t>::ok(0);
     }
 
-    const size_t written = writeStream_.write(data, size);
+    const uint64_t position = writeStream_.position();
+    if (position != writeBytes_ && !writeStream_.seekSet(writeBytes_)) {
+        OC_LOG_ERROR(
+            "[SDFileSystem] seek stream failed expected={} actual={} sdError={} sdData={}",
+            writeBytes_,
+            static_cast<uint32_t>(position),
+            SD.sdfs.sdErrorCode(),
+            SD.sdfs.sdErrorData()
+        );
+        return oc::type::Result<size_t>::err(
+            {oc::type::ErrorCode::STORAGE_WRITE_FAILED, "seek write stream failed"}
+        );
+    }
+
+    const size_t written = writeStable(writeStream_, data, size);
     if (written != size) {
+        OC_LOG_ERROR(
+            "[SDFileSystem] append stream failed requested={} written={} offset={} "
+            "position={} fileSize={} writeError={} sdError={} sdData={}",
+            size,
+            written,
+            writeBytes_,
+            static_cast<uint32_t>(writeStream_.position()),
+            static_cast<uint32_t>(writeStream_.fileSize()),
+            writeStream_.getWriteError(),
+            SD.sdfs.sdErrorCode(),
+            SD.sdfs.sdErrorData()
+        );
         return oc::type::Result<size_t>::err(
             {oc::type::ErrorCode::STORAGE_WRITE_FAILED, "write stream failed"}
         );
@@ -512,6 +609,12 @@ FLASHMEM oc::type::Result<void> SDFileSystemBackend::finishWrite() {
     writeStream_.close();
     resetWriteStream_();
     if (!synced) {
+        OC_LOG_ERROR(
+            "[SDFileSystem] finish stream failed truncate={} sdError={} sdData={}",
+            truncated,
+            SD.sdfs.sdErrorCode(),
+            SD.sdfs.sdErrorData()
+        );
         return oc::type::Result<void>::err(
             {oc::type::ErrorCode::STORAGE_WRITE_FAILED, "finish write stream failed"}
         );
@@ -532,7 +635,7 @@ FLASHMEM oc::type::Result<void> SDFileSystemBackend::ensureAvailable_() const {
             {oc::type::ErrorCode::INVALID_STATE, "filesystem not initialized"}
         );
     }
-    if (!SD.mediaPresent()) {
+    if (!detail::builtInSDMediaPresent()) {
         return oc::type::Result<void>::err(
             {oc::type::ErrorCode::HARDWARE_NOT_FOUND, "SD media not present"}
         );
