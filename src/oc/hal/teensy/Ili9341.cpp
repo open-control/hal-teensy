@@ -2,6 +2,10 @@
 
 #include <oc/diagnostics/Performance.hpp>
 
+#if defined(MS_STORAGE_QUALIFICATION)
+#include "QualificationTelemetry.hpp"
+#endif
+
 namespace oc::hal::teensy {
 
 namespace {
@@ -80,7 +84,13 @@ void Ili9341::flush(const void* buffer, const interface::Rect& area) {
     OC_PERF_SCOPE(perfFlush, "display.ili9341.flush");
     OC_PERF_UNITS(perfFlush, rectPixelCount(area), 1U);
     // Async update - false = don't wait for redraw
+#if defined(MS_STORAGE_QUALIFICATION)
+    qualification::displayBegin();
+#endif
     tft_->update(reinterpret_cast<uint16_t*>(const_cast<void*>(buffer)), false);
+#if defined(MS_STORAGE_QUALIFICATION)
+    qualification::displayEnd();
+#endif
 }
 
 void Ili9341::flushRegion(
@@ -104,6 +114,9 @@ void Ili9341::flushRegion(
 
     OC_PERF_SCOPE(perfFlush, "display.ili9341.flush-region");
     OC_PERF_UNITS(perfFlush, rectPixelCount(area), redrawNow ? 1U : 0U);
+#if defined(MS_STORAGE_QUALIFICATION)
+    qualification::displayBegin();
+#endif
     tft_->updateRegion(
         redrawNow,
         region,
@@ -113,6 +126,9 @@ void Ili9341::flushRegion(
         static_cast<int>(area.y2),
         static_cast<int>(frameStride)
     );
+#if defined(MS_STORAGE_QUALIFICATION)
+    qualification::displayEnd();
+#endif
 }
 
 FLASHMEM void Ili9341::waitAsyncComplete() {

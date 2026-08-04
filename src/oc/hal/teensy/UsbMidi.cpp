@@ -5,6 +5,10 @@
 #include <oc/diagnostics/Performance.hpp>
 #include <oc/log/Log.hpp>
 
+#if defined(MS_STORAGE_QUALIFICATION)
+#include "QualificationTelemetry.hpp"
+#endif
+
 namespace oc::hal::teensy {
 
 namespace {
@@ -64,6 +68,15 @@ void UsbMidi::pollInput() {
         uint8_t channel = usbMIDI.getChannel() - 1;
         uint8_t data1 = usbMIDI.getData1();
         uint8_t data2 = usbMIDI.getData2();
+
+#if defined(MS_STORAGE_QUALIFICATION)
+        const auto trafficKind = type == usbMIDI.Clock
+            ? qualification::MidiTrafficKind::Clock
+            : (type == usbMIDI.NoteOff
+                   ? qualification::MidiTrafficKind::NoteOff
+                   : qualification::MidiTrafficKind::Other);
+        qualification::noteMidiInput(trafficKind);
+#endif
 
         switch (type) {
             case usbMIDI.ControlChange:
@@ -139,6 +152,9 @@ void UsbMidi::sendNoteOff(uint8_t channel, uint8_t note, uint8_t velocity) {
 }
 
 void UsbMidi::sendSysEx(const uint8_t* data, size_t length) {
+#if defined(MS_STORAGE_QUALIFICATION)
+    qualification::midiOutputPulse(qualification::MidiTrafficKind::Other);
+#endif
     usbMIDI.sendSysEx(length, data, true);
 }
 
@@ -179,6 +195,9 @@ void UsbMidi::allNotesOff() {
             const uint32_t noteBit = 1UL << (note % ACTIVE_NOTE_WORD_BITS);
             auto& word = activeNotes[note / ACTIVE_NOTE_WORD_BITS];
             if ((word & noteBit) == 0) continue;
+#if defined(MS_STORAGE_QUALIFICATION)
+            qualification::midiOutputPulse(qualification::MidiTrafficKind::NoteOff);
+#endif
             usbMIDI.sendNoteOff(note, 0, channel + 1);
             word &= ~noteBit;
         }
@@ -202,6 +221,9 @@ bool UsbMidi::enqueueShortMessage_(ShortMessageType type,
     InterruptLock lock;
     if (output_queue_count_ >= output_queue_.size()) {
         dropped_output_count_ = dropped_output_count_ + 1U;
+#if defined(MS_STORAGE_QUALIFICATION)
+        qualification::noteMidiOutputDrop();
+#endif
         return false;
     }
 
@@ -224,6 +246,9 @@ bool UsbMidi::enqueuePitchBend_(uint8_t channel, int16_t value) {
     InterruptLock lock;
     if (output_queue_count_ >= output_queue_.size()) {
         dropped_output_count_ = dropped_output_count_ + 1U;
+#if defined(MS_STORAGE_QUALIFICATION)
+        qualification::noteMidiOutputDrop();
+#endif
         return false;
     }
 
@@ -288,6 +313,15 @@ void UsbMidi::drainOutputQueue_(uint32_t budgetUs) {
 }
 
 void UsbMidi::sendShortMessage_(const QueuedShortMessage& message) {
+#if defined(MS_STORAGE_QUALIFICATION)
+    const auto trafficKind = message.type == ShortMessageType::Clock
+        ? qualification::MidiTrafficKind::Clock
+        : (message.type == ShortMessageType::NoteOff
+               ? qualification::MidiTrafficKind::NoteOff
+               : qualification::MidiTrafficKind::Other);
+    qualification::midiOutputPulse(trafficKind);
+#endif
+
     switch (message.type) {
         case ShortMessageType::ControlChange:
             usbMIDI.sendControlChange(message.data1, message.data2, message.channel + 1);
