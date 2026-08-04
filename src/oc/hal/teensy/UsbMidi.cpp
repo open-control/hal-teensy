@@ -13,6 +13,8 @@ namespace oc::hal::teensy {
 
 namespace {
 
+using oc::interface::MidiOutputAcceptance;
+
 inline uint32_t readPrimask() {
     uint32_t primask = 0;
     asm volatile("MRS %0, primask" : "=r"(primask));
@@ -110,7 +112,7 @@ void UsbMidi::pollInput() {
         }
     }
 
-    reportOutputDrops_();
+    reportOutputRejections_();
 }
 
 void UsbMidi::serviceOutput() {
@@ -118,11 +120,11 @@ void UsbMidi::serviceOutput() {
 }
 
 void UsbMidi::serviceOutput(uint32_t budgetUs) {
-    if (!initialized_) return;
+    // Teensy USB MIDI may wait for the host for up to 40 ms. Physical output
+    // therefore belongs exclusively to the foreground loop, never an ISR.
+    if (!initialized_ || readIpsr() != 0U) return;
     drainOutputQueue_(budgetUs);
-    if (readIpsr() == 0U) {
-        reportOutputDrops_();
-    }
+    reportOutputRejections_();
 }
 
 void UsbMidi::markNoteActive(uint8_t channel, uint8_t note) {
@@ -139,54 +141,79 @@ void UsbMidi::markNoteInactive(uint8_t channel, uint8_t note) {
         ~(1UL << (note % ACTIVE_NOTE_WORD_BITS));
 }
 
-void UsbMidi::sendCC(uint8_t channel, uint8_t cc, uint8_t value) {
-    enqueueShortMessage_(ShortMessageType::ControlChange, channel, cc, value);
+MidiOutputAcceptance UsbMidi::sendCC(uint8_t channel, uint8_t cc, uint8_t value) {
+    return enqueueShortMessage_(ShortMessageType::ControlChange, channel, cc, value)
+        ? MidiOutputAcceptance::ACCEPTED
+        : MidiOutputAcceptance::REJECTED;
 }
 
-void UsbMidi::sendNoteOn(uint8_t channel, uint8_t note, uint8_t velocity) {
-    enqueueShortMessage_(ShortMessageType::NoteOn, channel, note, velocity);
+MidiOutputAcceptance UsbMidi::sendNoteOn(uint8_t channel, uint8_t note, uint8_t velocity) {
+    return enqueueShortMessage_(ShortMessageType::NoteOn, channel, note, velocity)
+        ? MidiOutputAcceptance::ACCEPTED
+        : MidiOutputAcceptance::REJECTED;
 }
 
-void UsbMidi::sendNoteOff(uint8_t channel, uint8_t note, uint8_t velocity) {
-    enqueueShortMessage_(ShortMessageType::NoteOff, channel, note, velocity);
+MidiOutputAcceptance UsbMidi::sendNoteOff(uint8_t channel, uint8_t note, uint8_t velocity) {
+    return enqueueShortMessage_(ShortMessageType::NoteOff, channel, note, velocity)
+        ? MidiOutputAcceptance::ACCEPTED
+        : MidiOutputAcceptance::REJECTED;
 }
 
-void UsbMidi::sendSysEx(const uint8_t* data, size_t length) {
+MidiOutputAcceptance UsbMidi::sendSysEx(const uint8_t* data, size_t length) {
+    if (!initialized_ || readIpsr() != 0U) {
+        return MidiOutputAcceptance::REJECTED;
+    }
 #if defined(MS_STORAGE_QUALIFICATION)
     qualification::midiOutputPulse(qualification::MidiTrafficKind::Other);
 #endif
     usbMIDI.sendSysEx(length, data, true);
+    return MidiOutputAcceptance::ACCEPTED;
 }
 
-void UsbMidi::sendProgramChange(uint8_t channel, uint8_t program) {
-    enqueueShortMessage_(ShortMessageType::ProgramChange, channel, program, 0);
+MidiOutputAcceptance UsbMidi::sendProgramChange(uint8_t channel, uint8_t program) {
+    return enqueueShortMessage_(ShortMessageType::ProgramChange, channel, program, 0)
+        ? MidiOutputAcceptance::ACCEPTED
+        : MidiOutputAcceptance::REJECTED;
 }
 
-void UsbMidi::sendPitchBend(uint8_t channel, int16_t value) {
-    enqueuePitchBend_(channel, value);
+MidiOutputAcceptance UsbMidi::sendPitchBend(uint8_t channel, int16_t value) {
+    return enqueuePitchBend_(channel, value)
+        ? MidiOutputAcceptance::ACCEPTED
+        : MidiOutputAcceptance::REJECTED;
 }
 
-void UsbMidi::sendChannelPressure(uint8_t channel, uint8_t pressure) {
-    enqueueShortMessage_(ShortMessageType::ChannelPressure, channel, pressure, 0);
+MidiOutputAcceptance UsbMidi::sendChannelPressure(uint8_t channel, uint8_t pressure) {
+    return enqueueShortMessage_(ShortMessageType::ChannelPressure, channel, pressure, 0)
+        ? MidiOutputAcceptance::ACCEPTED
+        : MidiOutputAcceptance::REJECTED;
 }
 
-void UsbMidi::sendClock() {
-    enqueueShortMessage_(ShortMessageType::Clock, 0, 0, 0);
+MidiOutputAcceptance UsbMidi::sendClock() {
+    return enqueueShortMessage_(ShortMessageType::Clock, 0, 0, 0)
+        ? MidiOutputAcceptance::ACCEPTED
+        : MidiOutputAcceptance::REJECTED;
 }
 
-void UsbMidi::sendStart() {
-    enqueueShortMessage_(ShortMessageType::Start, 0, 0, 0);
+MidiOutputAcceptance UsbMidi::sendStart() {
+    return enqueueShortMessage_(ShortMessageType::Start, 0, 0, 0)
+        ? MidiOutputAcceptance::ACCEPTED
+        : MidiOutputAcceptance::REJECTED;
 }
 
-void UsbMidi::sendStop() {
-    enqueueShortMessage_(ShortMessageType::Stop, 0, 0, 0);
+MidiOutputAcceptance UsbMidi::sendStop() {
+    return enqueueShortMessage_(ShortMessageType::Stop, 0, 0, 0)
+        ? MidiOutputAcceptance::ACCEPTED
+        : MidiOutputAcceptance::REJECTED;
 }
 
-void UsbMidi::sendContinue() {
-    enqueueShortMessage_(ShortMessageType::Continue, 0, 0, 0);
+MidiOutputAcceptance UsbMidi::sendContinue() {
+    return enqueueShortMessage_(ShortMessageType::Continue, 0, 0, 0)
+        ? MidiOutputAcceptance::ACCEPTED
+        : MidiOutputAcceptance::REJECTED;
 }
 
 void UsbMidi::allNotesOff() {
+    if (!initialized_ || readIpsr() != 0U) return;
     clearOutputQueue_();
 
     for (uint8_t channel = 0; channel < active_notes_.size(); ++channel) {
@@ -220,7 +247,7 @@ bool UsbMidi::enqueueShortMessage_(ShortMessageType type,
 
     InterruptLock lock;
     if (output_queue_count_ >= output_queue_.size()) {
-        dropped_output_count_ = dropped_output_count_ + 1U;
+        rejected_output_count_ = rejected_output_count_ + 1U;
 #if defined(MS_STORAGE_QUALIFICATION)
         qualification::noteMidiOutputDrop();
 #endif
@@ -245,7 +272,7 @@ bool UsbMidi::enqueuePitchBend_(uint8_t channel, int16_t value) {
 
     InterruptLock lock;
     if (output_queue_count_ >= output_queue_.size()) {
-        dropped_output_count_ = dropped_output_count_ + 1U;
+        rejected_output_count_ = rejected_output_count_ + 1U;
 #if defined(MS_STORAGE_QUALIFICATION)
         qualification::noteMidiOutputDrop();
 #endif
@@ -358,23 +385,24 @@ void UsbMidi::sendShortMessage_(const QueuedShortMessage& message) {
     }
 }
 
-void UsbMidi::reportOutputDrops_() {
-    if (dropped_output_count_ == 0) return;
+void UsbMidi::reportOutputRejections_() {
+    if (rejected_output_count_ == 0) return;
 
     const uint32_t nowMs = millis();
-    if (last_drop_report_ms_ != 0 && (nowMs - last_drop_report_ms_) < 1000U) {
+    if (last_rejection_report_ms_ != 0 &&
+        (nowMs - last_rejection_report_ms_) < 1000U) {
         return;
     }
 
-    uint32_t dropped = 0;
+    uint32_t rejected = 0;
     {
         InterruptLock lock;
-        dropped = dropped_output_count_;
-        dropped_output_count_ = 0;
+        rejected = rejected_output_count_;
+        rejected_output_count_ = 0;
     }
-    if (dropped > 0) {
-        last_drop_report_ms_ = nowMs;
-        OC_LOG_WARN("UsbMidi output queue dropped {} message(s)", dropped);
+    if (rejected > 0) {
+        last_rejection_report_ms_ = nowMs;
+        OC_LOG_WARN("UsbMidi output queue rejected {} message(s)", rejected);
     }
 }
 
