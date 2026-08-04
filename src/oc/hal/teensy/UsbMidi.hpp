@@ -31,17 +31,17 @@ public:
     void serviceOutput() override;
     void serviceOutput(uint32_t budgetUs) override;
 
-    void sendCC(uint8_t channel, uint8_t cc, uint8_t value) override;
-    void sendNoteOn(uint8_t channel, uint8_t note, uint8_t velocity) override;
-    void sendNoteOff(uint8_t channel, uint8_t note, uint8_t velocity) override;
-    void sendSysEx(const uint8_t* data, size_t length) override;
-    void sendProgramChange(uint8_t channel, uint8_t program) override;
-    void sendPitchBend(uint8_t channel, int16_t value) override;
-    void sendChannelPressure(uint8_t channel, uint8_t pressure) override;
-    void sendClock() override;
-    void sendStart() override;
-    void sendStop() override;
-    void sendContinue() override;
+    interface::MidiOutputAcceptance sendCC(uint8_t channel, uint8_t cc, uint8_t value) override;
+    interface::MidiOutputAcceptance sendNoteOn(uint8_t channel, uint8_t note, uint8_t velocity) override;
+    interface::MidiOutputAcceptance sendNoteOff(uint8_t channel, uint8_t note, uint8_t velocity) override;
+    interface::MidiOutputAcceptance sendSysEx(const uint8_t* data, size_t length) override;
+    interface::MidiOutputAcceptance sendProgramChange(uint8_t channel, uint8_t program) override;
+    interface::MidiOutputAcceptance sendPitchBend(uint8_t channel, int16_t value) override;
+    interface::MidiOutputAcceptance sendChannelPressure(uint8_t channel, uint8_t pressure) override;
+    interface::MidiOutputAcceptance sendClock() override;
+    interface::MidiOutputAcceptance sendStart() override;
+    interface::MidiOutputAcceptance sendStop() override;
+    interface::MidiOutputAcceptance sendContinue() override;
     void allNotesOff() override;
 
     void setOnCC(CCCallback cb) override;
@@ -88,7 +88,7 @@ private:
     void clearOutputQueue_();
     void drainOutputQueue_(uint32_t budgetUs);
     void sendShortMessage_(const QueuedShortMessage& message);
-    void reportOutputDrops_();
+    void reportOutputRejections_();
     void markNoteActive(uint8_t channel, uint8_t note);
     void markNoteInactive(uint8_t channel, uint8_t note);
     uint64_t nowUs_();
@@ -107,8 +107,8 @@ private:
     size_t output_queue_head_ = 0;
     size_t output_queue_tail_ = 0;
     size_t output_queue_count_ = 0;
-    volatile uint32_t dropped_output_count_ = 0;
-    uint32_t last_drop_report_ms_ = 0;
+    volatile uint32_t rejected_output_count_ = 0;
+    uint32_t last_rejection_report_ms_ = 0;
     bool initialized_ = false;
     HighResolutionClock clock_{};
 };
