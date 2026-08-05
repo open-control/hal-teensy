@@ -45,6 +45,32 @@ FLASHMEM size_t writeStable(FsFile& file, const uint8_t* data, size_t size) {
     return total;
 }
 
+/**
+ * The SDIO DMA path has the same FlexSPI limitation for destinations as for
+ * sources. Read through one native SD sector in DTCM before copying cold data
+ * to PSRAM; internal-memory callers retain the direct path.
+ */
+FLASHMEM int readStable(FsFile& file, uint8_t* data, size_t size) {
+    if (!isExternalRamAddress(data)) {
+        return file.read(data, size);
+    }
+
+    alignas(4) uint8_t staging[SDIO_PSRAM_STAGING_SIZE];
+    size_t total = 0;
+    while (total < size) {
+        const size_t remaining = size - total;
+        const size_t chunk = remaining < sizeof(staging) ? remaining : sizeof(staging);
+        const int readBytes = file.read(staging, chunk);
+        if (readBytes < 0) return total == 0U ? readBytes : static_cast<int>(total);
+        if (readBytes == 0) break;
+
+        std::memcpy(data + total, staging, static_cast<size_t>(readBytes));
+        total += static_cast<size_t>(readBytes);
+        if (static_cast<size_t>(readBytes) != chunk) break;
+    }
+    return static_cast<int>(total);
+}
+
 }  // namespace
 
 FLASHMEM oc::type::Result<void> SDFileSystemBackend::init() {
@@ -303,7 +329,7 @@ FLASHMEM oc::type::Result<size_t> SDFileSystemBackend::read(
         );
     }
 
-    const int readBytes = file.read(buffer, maxRead);
+    const int readBytes = readStable(file, buffer, maxRead);
     file.close();
     if (readBytes < 0) {
         return oc::type::Result<size_t>::err(
