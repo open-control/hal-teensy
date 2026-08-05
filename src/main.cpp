@@ -70,9 +70,30 @@ void setup() {
         } else {
             filesystem.abortWrite();
         }
-        Serial.println(psramWriteOk
-            ? "[oc-fs-smoke] PSRAM 32552B/4096B session OK"
-            : "[oc-fs-smoke] PSRAM 32552B/4096B session FAIL");
+
+        bool psramReadOk = psramWriteOk;
+        if (psramReadOk) {
+            std::memset(psramWritePayload, 0, sizeof(psramWritePayload));
+            for (size_t offset = 0; psramReadOk && offset < sizeof(psramWritePayload);) {
+                const size_t remaining = sizeof(psramWritePayload) - offset;
+                const size_t chunk = remaining < 4096U ? remaining : 4096U;
+                const auto read = filesystem.read(
+                    psramPath,
+                    offset,
+                    psramWritePayload + offset,
+                    chunk
+                );
+                psramReadOk = read && read.value() == chunk;
+                offset += chunk;
+            }
+        }
+        for (size_t i = 0; psramReadOk && i < sizeof(psramWritePayload); ++i) {
+            const uint8_t expected = static_cast<uint8_t>((i * 37U) ^ (i >> 3U));
+            psramReadOk = psramWritePayload[i] == expected;
+        }
+        Serial.println(psramWriteOk && psramReadOk
+            ? "[oc-fs-smoke] PSRAM 32552B/4096B read/write session OK"
+            : "[oc-fs-smoke] PSRAM 32552B/4096B read/write session FAIL");
         (void)filesystem.remove(psramPath);
     }
 #endif
