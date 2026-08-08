@@ -10,6 +10,19 @@ namespace oc::hal::teensy {
 
 namespace {
 
+// Keep power-up register programming conservative even when the product uses
+// a faster SPI clock for framebuffer transfers. ILI9341_T4 sends its setup
+// commands at one quarter of the value passed to begin(), so this caps the
+// actual initialization bus at 5 MHz. The configured runtime clock is restored
+// immediately after the controller has passed its status-register checks.
+constexpr uint32_t MAX_INITIALIZATION_SPI_SPEED = 20'000'000U;
+
+constexpr uint32_t initializationSpiSpeed(uint32_t runtimeSpiSpeed) {
+    return runtimeSpiSpeed < MAX_INITIALIZATION_SPI_SPEED
+        ? runtimeSpiSpeed
+        : MAX_INITIALIZATION_SPI_SPEED;
+}
+
 #if OC_ENABLE_STATS
 uint32_t rectPixelCount(const interface::Rect& rect) {
     const int32_t width = rect.x2 - rect.x1 + 1;
@@ -51,8 +64,12 @@ FLASHMEM oc::type::Result<void> Ili9341::init() {
     tft_.emplace(config_.csPin, config_.dcPin, config_.sckPin,
                  config_.mosiPin, config_.misoPin, config_.rstPin);
 
-    if (!tft_->begin(config_.spiSpeed)) {
+    const uint32_t initSpiSpeed = initializationSpiSpeed(config_.spiSpeed);
+    if (!tft_->begin(initSpiSpeed)) {
         return R::err({E::HARDWARE_INIT_FAILED, "ILI9341 SPI begin failed"});
+    }
+    if (initSpiSpeed != config_.spiSpeed) {
+        tft_->setSpiClock(static_cast<int>(config_.spiSpeed));
     }
 
     tft_->setRotation(config_.rotation);
