@@ -64,7 +64,9 @@ void UsbMidi::update() {
 void UsbMidi::pollInput() {
     if (!initialized_) return;
 
-    while (usbMIDI.read()) {
+    size_t processedCount = 0U;
+    while (processedCount < MAX_INPUT_MESSAGES_PER_POLL && usbMIDI.read()) {
+        ++processedCount;
         const uint64_t timestampUs = nowUs_();
         uint8_t type = usbMIDI.getType();
         uint8_t channel = usbMIDI.getChannel() - 1;
@@ -112,6 +114,18 @@ void UsbMidi::pollInput() {
         }
     }
 
+    if (processedCount == MAX_INPUT_MESSAGES_PER_POLL) {
+        if (input_budget_hit_count_ != UINT32_MAX) {
+            ++input_budget_hit_count_;
+        }
+        OC_PERF_RECORD(
+            "midi.usb-input-budget",
+            0U,
+            static_cast<uint32_t>(processedCount),
+            static_cast<uint32_t>(MAX_INPUT_MESSAGES_PER_POLL)
+        );
+        reportInputBudgetHits_();
+    }
     reportOutputRejections_();
 }
 
@@ -383,6 +397,26 @@ void UsbMidi::sendShortMessage_(const QueuedShortMessage& message) {
             usbMIDI.sendRealTime(usbMIDI.Continue);
             break;
     }
+}
+
+FLASHMEM void UsbMidi::reportInputBudgetHits_() {
+    if (input_budget_hit_count_ == 0U) return;
+
+    const uint32_t nowMs = millis();
+    if (last_input_budget_report_ms_ != 0U &&
+        (nowMs - last_input_budget_report_ms_) < 1000U) {
+        return;
+    }
+
+    const uint32_t hits = input_budget_hit_count_;
+    input_budget_hit_count_ = 0U;
+    last_input_budget_report_ms_ = nowMs;
+    OC_LOG_WARN(
+        "UsbMidi input poll reached {}-message budget {} time(s); "
+        "additional input, if any, deferred",
+        MAX_INPUT_MESSAGES_PER_POLL,
+        hits
+    );
 }
 
 void UsbMidi::reportOutputRejections_() {
