@@ -16,6 +16,10 @@ namespace oc::hal::teensy {
  */
 class UsbMidi : public interface::IMidi {
 public:
+    // One high-speed USB MIDI receive packet contains at most 512 / 4 = 128
+    // MIDI event packets. Process at most one such packet per app turn so a
+    // continuously producing host cannot monopolize the foreground loop.
+    static constexpr size_t MAX_INPUT_MESSAGES_PER_POLL = 128U;
     static constexpr size_t OUTPUT_QUEUE_CAPACITY = 128;
     static constexpr uint32_t DEFAULT_OUTPUT_DRAIN_BUDGET_US = 500;
 
@@ -88,6 +92,7 @@ private:
     void clearOutputQueue_();
     void drainOutputQueue_(uint32_t budgetUs);
     void sendShortMessage_(const QueuedShortMessage& message);
+    void reportInputBudgetHits_();
     void reportOutputRejections_();
     void markNoteActive(uint8_t channel, uint8_t note);
     void markNoteInactive(uint8_t channel, uint8_t note);
@@ -107,6 +112,8 @@ private:
     size_t output_queue_head_ = 0;
     size_t output_queue_tail_ = 0;
     size_t output_queue_count_ = 0;
+    uint32_t input_budget_hit_count_ = 0;
+    uint32_t last_input_budget_report_ms_ = 0;
     volatile uint32_t rejected_output_count_ = 0;
     uint32_t last_rejection_report_ms_ = 0;
     bool initialized_ = false;
