@@ -13,9 +13,14 @@ namespace {
 // Keep power-up register programming conservative even when the product uses
 // a faster SPI clock for framebuffer transfers. ILI9341_T4 sends its setup
 // commands at one quarter of the value passed to begin(), so this caps the
-// actual initialization bus at 5 MHz. The configured runtime clock is restored
+// actual initialization bus at 2.5 MHz. The configured runtime clock is restored
 // immediately after the controller has passed its status-register checks.
-constexpr uint32_t MAX_INITIALIZATION_SPI_SPEED = 20'000'000U;
+//
+// Some controllers only fail this cold-start handshake intermittently while
+// remaining perfectly stable at the configured runtime transfer speed. The
+// setup traffic is negligible compared with a frame, so favour boot reliability
+// here rather than spending the product's runtime performance margin.
+constexpr uint32_t MAX_INITIALIZATION_SPI_SPEED = 10'000'000U;
 
 constexpr uint32_t initializationSpiSpeed(uint32_t runtimeSpiSpeed) {
     return runtimeSpiSpeed < MAX_INITIALIZATION_SPI_SPEED
