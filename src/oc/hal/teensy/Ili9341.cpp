@@ -153,6 +153,11 @@ void Ili9341::flushRegion(
 #endif
 }
 
+FLASHMEM uint32_t Ili9341::panelRefreshRateHz() const {
+    if (!tft_) return 0U;
+    return static_cast<uint32_t>(tft_->getRefreshRate() + 0.5f);
+}
+
 FLASHMEM void Ili9341::waitAsyncComplete() {
     if (tft_) tft_->waitUpdateAsyncComplete();
 }

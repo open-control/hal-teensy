@@ -110,6 +110,7 @@ public:
     ) override;
     uint16_t width() const override { return config_.width; }
     uint16_t height() const override { return config_.height; }
+    uint32_t panelRefreshRateHz() const;
 
     void waitAsyncComplete();
 
