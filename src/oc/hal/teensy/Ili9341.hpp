@@ -6,6 +6,7 @@
 
 #include <ILI9341_T4.h>
 
+#include <oc/Config.hpp>
 #include <oc/type/Result.hpp>
 #include <oc/interface/IDisplay.hpp>
 
@@ -115,6 +116,22 @@ public:
     void waitAsyncComplete();
 
 private:
+#if OC_ENABLE_STATS
+    struct NativeStatsCursor {
+        uint32_t frames = 0;
+        uint64_t cpuTimeUs = 0;
+        uint64_t uploadTimeUs = 0;
+        uint64_t uploadedPixels = 0;
+        uint64_t transactions = 0;
+        uint32_t diffComputations = 0;
+        uint64_t diffTimeUs = 0;
+        uint64_t diffBytes = 0;
+        uint32_t diffOverflows = 0;
+    };
+
+    void recordNativePerformance();
+#endif
+
     Ili9341Config config_;
     Ili9341Buffers buffers_;
     size_t effectiveDiff1Size_;
@@ -123,6 +140,9 @@ private:
     std::unique_ptr<ILI9341_T4::DiffBuff> diff1_;
     std::unique_ptr<ILI9341_T4::DiffBuff> diff2_;
     bool initialized_ = false;
+#if OC_ENABLE_STATS
+    NativeStatsCursor nativeStatsCursor_{};
+#endif
 };
 
 }  // namespace oc::hal::teensy

@@ -29,12 +29,18 @@ constexpr uint32_t initializationSpiSpeed(uint32_t runtimeSpiSpeed) {
 }
 
 #if OC_ENABLE_STATS
+constexpr uint32_t NATIVE_STATS_SAMPLE_FRAMES = 32U;
+
 uint32_t rectPixelCount(const interface::Rect& rect) {
     const int32_t width = rect.x2 - rect.x1 + 1;
     const int32_t height = rect.y2 - rect.y1 + 1;
     if (width <= 0 || height <= 0) return 0;
 
     return static_cast<uint32_t>(width) * static_cast<uint32_t>(height);
+}
+
+uint64_t statsTotal(const ILI9341_T4::StatsVar& stats) {
+    return static_cast<uint64_t>(stats.avg() * stats.count() + 0.5f);
 }
 
 #endif
@@ -129,6 +135,10 @@ void Ili9341::flushRegion(
         return;
     }
 
+#if OC_ENABLE_STATS
+    recordNativePerformance();
+#endif
+
     const auto* frame = static_cast<const uint16_t*>(frameBuffer);
     const auto* region = frame +
         static_cast<size_t>(area.y1) * static_cast<size_t>(frameStride) +
@@ -158,6 +168,93 @@ void Ili9341::flushRegion(
     qualification::displayEnd();
 #endif
 }
+
+#if OC_ENABLE_STATS
+void Ili9341::recordNativePerformance() {
+    const uint32_t frames = tft_->statsNbFrames();
+    if (frames < nativeStatsCursor_.frames) nativeStatsCursor_ = {};
+    if (frames - nativeStatsCursor_.frames < NATIVE_STATS_SAMPLE_FRAMES) return;
+
+    const uint64_t cpuTimeUs = statsTotal(tft_->statsCPUtimePerFrame());
+    const uint64_t uploadTimeUs = statsTotal(tft_->statsUploadtimePerFrame());
+    const uint64_t uploadedPixels = statsTotal(tft_->statsPixelsPerFrame());
+    const uint64_t transactions = statsTotal(tft_->statsTransactionsPerFrame());
+    const uint32_t diffComputations =
+        (diff1_ ? diff1_->statsNbComputed() : 0U) +
+        (diff2_ ? diff2_->statsNbComputed() : 0U);
+    const uint64_t diffTimeUs =
+        (diff1_ ? statsTotal(diff1_->statsTime()) : 0U) +
+        (diff2_ ? statsTotal(diff2_->statsTime()) : 0U);
+    const uint64_t diffBytes =
+        (diff1_ ? statsTotal(diff1_->statsSize()) : 0U) +
+        (diff2_ ? statsTotal(diff2_->statsSize()) : 0U);
+    const uint32_t diffOverflows =
+        (diff1_ ? diff1_->statsNbOverflow() : 0U) +
+        (diff2_ ? diff2_->statsNbOverflow() : 0U);
+    const uint32_t sampledFrames = frames - nativeStatsCursor_.frames;
+
+    if (cpuTimeUs < nativeStatsCursor_.cpuTimeUs ||
+        uploadTimeUs < nativeStatsCursor_.uploadTimeUs ||
+        uploadedPixels < nativeStatsCursor_.uploadedPixels ||
+        transactions < nativeStatsCursor_.transactions ||
+        diffComputations < nativeStatsCursor_.diffComputations ||
+        diffTimeUs < nativeStatsCursor_.diffTimeUs ||
+        diffBytes < nativeStatsCursor_.diffBytes ||
+        diffOverflows < nativeStatsCursor_.diffOverflows) {
+        nativeStatsCursor_ = {};
+        return;
+    }
+
+    const uint32_t averagePixels = static_cast<uint32_t>(
+        (uploadedPixels - nativeStatsCursor_.uploadedPixels) / sampledFrames
+    );
+    const uint32_t averageTransactions = static_cast<uint32_t>(
+        (transactions - nativeStatsCursor_.transactions) / sampledFrames
+    );
+    OC_PERF_RECORD(
+        "display.ili9341.frame-cpu",
+        static_cast<uint32_t>(
+            (cpuTimeUs - nativeStatsCursor_.cpuTimeUs) / sampledFrames
+        ),
+        averagePixels,
+        averageTransactions
+    );
+    OC_PERF_RECORD(
+        "display.ili9341.frame-upload",
+        static_cast<uint32_t>(
+            (uploadTimeUs - nativeStatsCursor_.uploadTimeUs) / sampledFrames
+        ),
+        averagePixels,
+        averageTransactions
+    );
+    const uint32_t sampledDiffs =
+        diffComputations - nativeStatsCursor_.diffComputations;
+    if (sampledDiffs > 0U) {
+        OC_PERF_RECORD(
+            "display.ili9341.diff",
+            static_cast<uint32_t>(
+                (diffTimeUs - nativeStatsCursor_.diffTimeUs) / sampledDiffs
+            ),
+            static_cast<uint32_t>(
+                (diffBytes - nativeStatsCursor_.diffBytes) / sampledDiffs
+            ),
+            diffOverflows - nativeStatsCursor_.diffOverflows
+        );
+    }
+
+    nativeStatsCursor_ = {
+        frames,
+        cpuTimeUs,
+        uploadTimeUs,
+        uploadedPixels,
+        transactions,
+        diffComputations,
+        diffTimeUs,
+        diffBytes,
+        diffOverflows,
+    };
+}
+#endif
 
 FLASHMEM uint32_t Ili9341::panelRefreshRateHz() const {
     if (!tft_) return 0U;
