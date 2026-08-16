@@ -135,7 +135,6 @@ void Ili9341::flushRegion(
         static_cast<size_t>(area.x1);
 
     OC_PERF_SCOPE(perfFlush, "display.ili9341.flush-region");
-    OC_PERF_UNITS(perfFlush, rectPixelCount(area), redrawNow ? 1U : 0U);
 #if defined(MS_STORAGE_QUALIFICATION)
     qualification::displayBegin();
 #endif
@@ -148,6 +147,13 @@ void Ili9341::flushRegion(
         static_cast<int>(area.y2),
         static_cast<int>(frameStride)
     );
+#if OC_ENABLE_STATS
+    uint32_t diffBytes = diff1_ ? static_cast<uint32_t>(diff1_->size()) : 0U;
+    if (diff2_ && static_cast<uint32_t>(diff2_->size()) > diffBytes) {
+        diffBytes = static_cast<uint32_t>(diff2_->size());
+    }
+    OC_PERF_UNITS(perfFlush, rectPixelCount(area), diffBytes);
+#endif
 #if defined(MS_STORAGE_QUALIFICATION)
     qualification::displayEnd();
 #endif
