@@ -408,7 +408,7 @@ FLASHMEM void UsbMidi::reportInputBudgetHits_() {
         return;
     }
 
-    const uint32_t hits = input_budget_hit_count_;
+    [[maybe_unused]] const uint32_t hits = input_budget_hit_count_;
     input_budget_hit_count_ = 0U;
     last_input_budget_report_ms_ = nowMs;
     OC_LOG_WARN(
