@@ -21,6 +21,11 @@ static uint16_t tx_available, tx_packet_size;
 static uint8_t usb_configuration;
 static unsigned statusReads, submissions;
 static bool sofEnabled;
+static void (*completed)(transfer_t*);
+static unsigned wakeups;
+static void usb_config_tx(uint32_t, uint32_t, int, void (*callback)(transfer_t*)) {
+    completed = callback;
+}
 
 static uint32_t usb_transfer_status(transfer_t* t) {
     assert(!irqEnabled); ++statusReads; return t->status;
@@ -36,27 +41,18 @@ static void oc_usb_midi_sdk_configure() {
     tx_head = tx_noautoflush = 0; tx_available = 0; tx_packet_size = TX_SIZE;
     for (auto& t : tx_transfer) t = {};
 }
-static void usb_midi_flush_output() {
-    assert(!irqEnabled);
-    if (!tx_noautoflush && tx_available) {
-        auto* t = &tx_transfer[tx_head];
-        t->length = tx_packet_size - tx_available;
-        usb_transmit(MIDI_TX_ENDPOINT, t);
-        tx_head = (tx_head + 1) % TX_NUM;
-        tx_available = 0; sofEnabled = false;
-    }
-}
-
 #include <oc/hal/teensy/detail/UsbMidiTx.inc>
 
 int main() {
     assert(oc_usb_midi_session() == 0);
     assert(oc_usb_midi_try_write(0xF80F, 0) == OC_USB_MIDI_OFFLINE);
     assert(irqEnabled && !tx_noautoflush);
+    oc_usb_midi_set_wakeup([]() { ++wakeups; });
     usb_configuration = 1;
     usb_midi_configure();
     const uint32_t session = oc_usb_midi_session();
     assert(session);
+    assert(completed && wakeups == 1);
     for (auto& t : tx_transfer) t.status = 0x80;
     for (unsigned i = 0; i < 100; ++i) {
         assert(oc_usb_midi_try_write(0xF80F, session) == OC_USB_MIDI_BUSY);
@@ -102,7 +98,19 @@ int main() {
     assert(tx_head == 0 && !tx_available);
     assert(oc_usb_midi_try_write(0xF80F, oc_usb_midi_session()) == OC_USB_MIDI_BUSY);
     for (auto& t : tx_transfer) assert(t.length == 64);
+    tx_transfer[0].status = 0; // DMA finished, USB callback not dispatched yet.
+    assert(oc_usb_midi_try_write(0xF80F, oc_usb_midi_session()) == OC_USB_MIDI_BUSY);
+    const auto beforeComplete = wakeups;
+    completed(&tx_transfer[0]);
+    assert(wakeups == beforeComplete + 1);
+    assert(oc_usb_midi_try_write(0xF80F, oc_usb_midi_session()) == OC_USB_MIDI_ACCEPTED);
+    usb_midi_flush_output(); // SOF uses the same in-flight bookkeeping.
+    assert(oc_usb_midi_inflight & 1U);
     oc_usb_midi_generation = UINT32_MAX;
     usb_midi_configure();
     assert(oc_usb_midi_session() == 1); // Zero remains reserved for offline.
+    oc_usb_midi_set_wakeup(nullptr);
+    const auto beforeDetach = wakeups;
+    usb_midi_configure();
+    assert(wakeups == beforeDetach);
 }

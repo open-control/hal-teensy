@@ -16,6 +16,8 @@ static size_t flushes;
 static size_t capacity;
 static bool dmaError;
 static bool reconnectOnWrite;
+static void (*wakeup)();
+static uint32_t writeCostUs;
 static std::vector<uint32_t> packets;
 #if OC_ENABLE_STATS
 static std::vector<oc::diagnostics::PerformanceSample> samples;
@@ -26,6 +28,7 @@ uint64_t oc::hal::teensy::HighResolutionClock::micros64() { return ++testMicros;
 extern "C" uint32_t oc_usb_midi_session() { return session; }
 extern "C" oc_usb_midi_acceptance oc_usb_midi_try_write(uint32_t packet, uint32_t expected) {
     ++attempts;
+    testMicros += writeCostUs;
     if (reconnectOnWrite) { ++session; reconnectOnWrite = false; }
     if (!session || expected != session) return OC_USB_MIDI_OFFLINE;
     if (dmaError) return OC_USB_MIDI_ERROR;
@@ -33,6 +36,14 @@ extern "C" oc_usb_midi_acceptance oc_usb_midi_try_write(uint32_t packet, uint32_
     --capacity;
     packets.push_back(packet);
     return OC_USB_MIDI_ACCEPTED;
+}
+extern "C" void oc_usb_midi_set_wakeup(void (*callback)()) { wakeup = callback; }
+
+static void interruptOnce() {
+    if (!testOutputIrqPending) return;
+    assert(testOutputIrqEnabled && testOutputIrq);
+    testOutputIrqPending = false;
+    testOutputIrq();
 }
 extern "C" void oc_usb_midi_flush(uint32_t expected) {
     assert(expected == session);
@@ -44,11 +55,17 @@ struct Fixture {
     Fixture() {
         session = 1; attempts = flushes = 0; capacity = 10000;
         dmaError = reconnectOnWrite = false;
+        writeCostUs = 0;
         packets.clear(); testMicros = 0; usbMIDI = {};
 #if OC_ENABLE_STATS
         samples.clear();
 #endif
         assert(midi.init());
+        assert(testOutputIrqPriority == 144);
+    }
+    void service(uint32_t budgetUs = UsbMidi::DEFAULT_OUTPUT_DRAIN_BUDGET_US) {
+        midi.serviceOutput(budgetUs);
+        interruptOnce();
     }
 };
 
@@ -66,7 +83,7 @@ static void packedMessages() {
     assert(f.midi.sendStop() == accepted);
     assert(f.midi.sendContinue() == accepted);
     assert(packets.empty());
-    f.midi.serviceOutput();
+    f.service();
     assert((packets == std::vector<uint32_t>{0x7F07BF0B, 0x643C9209, 0x283C8208,
         0x000AC00C, 0x0000E30E, 0x7F7FE30E, 0x002AD10D, 0xF80F, 0xFA0F, 0xFC0F, 0xFB0F}));
     assert(flushes == 1);
@@ -85,16 +102,18 @@ static void saturationRetainsOwnership() {
     assert(f.midi.sendClock() == rejected);
     f.midi.serviceOutput(0);
     assert(attempts == 0);
-    for (int i = 0; i < 100; ++i) f.midi.serviceOutput();
-    assert(attempts == 100); // One attempt per service, no spin or loss.
+    for (int i = 0; i < 100; ++i) f.service();
+    assert(attempts == 1); // Busy sleeps until USB availability, no IRQ storm.
     assert(packets.empty() && flushes == 0);
     assert(f.midi.sendClock() == rejected); // Still full.
     capacity = 64;
-    f.midi.serviceOutput();
+    wakeup();
+    f.service();
     assert(packets.size() == 64);
     for (int i = 0; i < 64; ++i) assert(f.midi.sendClock() == accepted);
     capacity = 1000;
-    f.midi.serviceOutput();
+    wakeup();
+    f.service();
     assert(packets.size() == 192);
     for (uint32_t i = 0; i < 128; ++i) assert(packets[i] == (0x0001B00B | (i << 24)));
     for (size_t i = 128; i < 192; ++i) assert(packets[i] == 0xF80F);
@@ -104,14 +123,17 @@ static void dmaErrorAndTimeBudget() {
     Fixture f;
     assert(f.midi.sendClock() == accepted);
     dmaError = true;
-    f.midi.serviceOutput();
+    f.service();
     assert(attempts == 1 && packets.empty());
     dmaError = false;
-    assert(f.midi.sendStop() == accepted);
-    f.midi.serviceOutput(2); // Test clock advances once per budget check.
-    assert(packets.size() == 1 && packets[0] == 0xF80F);
-    f.midi.serviceOutput();
-    assert(packets.size() == 2 && packets[1] == 0xFC0F);
+    for (int i = 0; i < 10; ++i) assert(f.midi.sendStop() == accepted);
+    writeCostUs = 100;
+    wakeup();
+    f.service(UINT32_MAX); // Foreground cannot override the 250 us IRQ budget.
+    assert(packets.size() == 3 && packets[0] == 0xF80F);
+    writeCostUs = 0;
+    f.service();
+    assert(packets.size() == 11 && packets[1] == 0xFC0F);
 }
 
 static void sysexIsAtomicAndOwned() {
@@ -123,19 +145,19 @@ static void sysexIsAtomicAndOwned() {
         assert(f.midi.sendClock() == accepted);
     }
     assert(f.midi.sendSysEx(data, sizeof(data)) == rejected);
-    f.midi.serviceOutput();
+    f.service();
     assert(packets.size() == 126);
     packets.clear();
     assert(f.midi.sendSysEx(data, sizeof(data)) == accepted);
     data[1] = 99; // Caller storage can be reused immediately.
     assert(f.midi.sendClock() == accepted);
-    f.midi.serviceOutput();
+    f.service();
     assert((packets == std::vector<uint32_t>{0x0201F004, 0x05040304, 0xF705, 0xF80F}));
     for (size_t length : std::array<size_t, 4>{2, 3, 4, UsbMidi::MAX_SYSEX_BYTES}) {
         std::vector<uint8_t> bytes(length, 1);
         bytes.front() = 0xF0; bytes.back() = 0xF7;
         assert(f.midi.sendSysEx(bytes.data(), bytes.size()) == accepted);
-        f.midi.serviceOutput();
+        f.service();
         assert((packets.back() & 0xF) == 5 + ((length - 1) % 3));
     }
     std::vector<uint8_t> tooLarge(UsbMidi::MAX_SYSEX_BYTES + 1, 1);
@@ -146,51 +168,58 @@ static void sysexIsAtomicAndOwned() {
 static void panicRetriesAndClosesSysex() {
     Fixture f;
     assert(f.midi.sendNoteOn(15, 127, 100) == accepted);
-    f.midi.serviceOutput();
+    f.service();
     packets.clear();
     uint8_t data[] = {0xF0, 1, 2, 3, 0xF7};
     assert(f.midi.sendSysEx(data, sizeof(data)) == accepted);
     capacity = 1;
-    f.midi.serviceOutput(); // First SysEx packet only.
+    f.service(); // First SysEx packet only.
     f.midi.allNotesOff();
+    interruptOnce();
     assert(packets.size() == 1);
     assert(f.midi.sendNoteOn(0, 60, 100) == rejected);
     capacity = 1;
-    f.midi.serviceOutput();
+    wakeup();
+    f.service();
     assert(packets.size() == 2 && packets.back() == 0xF705);
     capacity = 1;
-    f.midi.serviceOutput();
+    wakeup();
+    f.service();
     assert(packets.size() == 3 && packets.back() == 0x007F8F08);
     capacity = 100;
-    f.midi.serviceOutput();
+    wakeup();
+    f.service();
     assert(f.midi.sendNoteOn(0, 60, 100) == accepted);
     assert(f.midi.sendNoteOn(0, 60, 0) == accepted);
-    f.midi.serviceOutput();
+    f.service();
     const auto beforePanic = packets.size();
     f.midi.allNotesOff();
+    interruptOnce();
     assert(packets.size() == beforePanic); // Velocity-zero Note On already released it.
 }
 
 static void disconnectAndSessionRaces() {
     Fixture f;
     assert(f.midi.sendNoteOn(0, 60, 100) == accepted);
-    f.midi.serviceOutput();
+    f.service();
     assert(f.midi.sendNoteOn(0, 61, 100) == accepted);
     session = 0;
     assert(f.midi.sendClock() == rejected);
-    f.midi.serviceOutput();
+    f.service();
     assert(packets.size() == 1);
     session = 2;
-    f.midi.serviceOutput();
+    wakeup();
+    f.service();
     assert(packets.size() == 2 && packets.back() == 0x003C8008);
     assert(f.midi.sendNoteOn(0, 62, 100) == accepted);
     reconnectOnWrite = true;
-    f.midi.serviceOutput(); // Reconfiguration between peek and DMA admission.
+    f.service(); // Reconfiguration between peek and DMA admission.
     assert(packets.size() == 2);
-    f.midi.serviceOutput();
+    wakeup();
+    f.service();
     assert(packets.size() == 2); // Old HAL session packet cancelled, not replayed.
     assert(f.midi.sendClock() == accepted);
-    f.midi.serviceOutput();
+    f.service();
     assert(packets.size() == 3 && packets.back() == 0xF80F);
 }
 
@@ -200,13 +229,14 @@ static void fullPanicIsBoundedAndComplete() {
         for (uint8_t note = 0; note < 128; ++note) {
             assert(f.midi.sendNoteOn(channel, note, 100) == accepted);
         }
-        f.midi.serviceOutput();
+        f.service();
     }
     assert(packets.size() == 2048);
     packets.clear();
     f.midi.allNotesOff();
+    interruptOnce();
     assert(packets.size() == UsbMidi::OUTPUT_QUEUE_CAPACITY);
-    for (int i = 0; i < 16; ++i) f.midi.serviceOutput();
+    for (int i = 0; i < 16; ++i) f.service();
     assert(packets.size() == 2048);
     for (uint32_t i = 0; i < 2048; ++i) {
         assert(packets[i] == (0x8008 | ((i / 128) << 8) | ((i % 128) << 16)));
@@ -225,6 +255,30 @@ static void inputBudgetStillApplies() {
     assert(clocks == 129);
 }
 
+static void fullBurstRefillsWithoutForeground() {
+    Fixture f;
+    struct Source { UsbMidi& midi; uint32_t next = 0; } source{f.midi};
+    f.midi.setOutputRefill([](void* context, uint32_t budget) {
+        auto& s = *static_cast<Source*>(context);
+        assert(budget == UsbMidi::OUTPUT_REFILL_BUDGET_US);
+        while (s.next < 832) {
+            if (s.midi.sendCC(0, uint8_t(s.next >> 7), uint8_t(s.next & 127)) != accepted)
+                return true;
+            ++s.next;
+        }
+        return false;
+    }, &source);
+    assert(f.midi.sendStart() == accepted);
+    // No foreground service, no new timer tick. Only the already-pended IRQs.
+    for (int i = 0; i < 30 && testOutputIrqPending; ++i) interruptOnce();
+    assert(source.next == 832 && packets.size() == 833 && !testOutputIrqPending);
+    for (uint32_t i = 0; i < 832; ++i)
+        assert(packets[i + 1] == (0xB00B | ((i >> 7) << 16) | ((i & 127) << 24)));
+    f.midi.setOutputRefill(nullptr, nullptr);
+    UsbMidi second;
+    assert(!second.init()); // Never steal another live owner's vector.
+}
+
 int main() {
     packedMessages();
     saturationRetainsOwnership();
@@ -234,4 +288,5 @@ int main() {
     disconnectAndSessionRaces();
     fullPanicIsBoundedAndComplete();
     inputBudgetStillApplies();
+    fullBurstRefillsWithoutForeground();
 }

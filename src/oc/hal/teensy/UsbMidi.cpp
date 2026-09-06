@@ -13,6 +13,17 @@
 #include "QualificationTelemetry.hpp"
 #endif
 
+namespace {
+void (*midiOutputInterrupt)() = nullptr;
+}
+
+// Reserve the SDK AudioStream software IRQ explicitly. AudioStream defines
+// this same strong C++ symbol: linking both owners fails instead of silently
+// stealing the vector. PendSV/EventResponder and the PIT allocator are untouched.
+void software_isr() {
+    if (midiOutputInterrupt) midiOutputInterrupt();
+}
+
 namespace oc::hal::teensy {
 
 namespace {
@@ -45,10 +56,50 @@ uint32_t shortPacket(uint8_t status, uint8_t channel, uint8_t data1, uint8_t dat
 
 FLASHMEM oc::type::Result<void> UsbMidi::init() {
     if (initialized_) return oc::type::Result<void>::ok();
-
+    InterruptGuard lock;
+    if (output_owner_ || NVIC_IS_ENABLED(IRQ_SOFTWARE)) {
+        return oc::type::Result<void>::err(
+            {oc::type::ErrorCode::HARDWARE_INIT_FAILED, "USB MIDI output IRQ already owned"});
+    }
+    output_owner_ = this;
+    midiOutputInterrupt = []() {
+        if (output_owner_) output_owner_->processOutputInterrupt_();
+    };
+    attachInterruptVector(IRQ_SOFTWARE, software_isr);
+    NVIC_SET_PRIORITY(IRQ_SOFTWARE, OUTPUT_IRQ_PRIORITY);
+    NVIC_CLEAR_PENDING(IRQ_SOFTWARE);
     output_session_ = oc_usb_midi_session();
     initialized_ = true;
+    oc_usb_midi_set_wakeup(requestOutput_);
+    NVIC_ENABLE_IRQ(IRQ_SOFTWARE);
     return oc::type::Result<void>::ok();
+}
+
+FLASHMEM UsbMidi::~UsbMidi() {
+    InterruptGuard lock;
+    if (output_owner_ != this) return;
+    NVIC_DISABLE_IRQ(IRQ_SOFTWARE);
+    NVIC_CLEAR_PENDING(IRQ_SOFTWARE);
+    oc_usb_midi_set_wakeup(nullptr);
+    midiOutputInterrupt = nullptr;
+    output_owner_ = nullptr;
+}
+
+void UsbMidi::requestOutput_() {
+#if OC_ENABLE_STATS
+    InterruptGuard lock;
+    if (output_owner_ && !output_owner_->output_wake_pending_) {
+        output_owner_->output_wake_us_ = micros();
+        output_owner_->output_wake_pending_ = true;
+    }
+#endif
+    NVIC_SET_PENDING(IRQ_SOFTWARE);
+}
+
+void UsbMidi::setOutputRefill(OutputRefill callback, void* context) {
+    InterruptGuard lock;
+    output_refill_ = callback;
+    output_refill_context_ = context;
 }
 
 void UsbMidi::update() {
@@ -60,6 +111,7 @@ void UsbMidi::update() {
 
 void UsbMidi::pollInput() {
     if (!initialized_) return;
+    (void)nowUs_(); // Keep the foreground-owned DWT wrap extender sampled even when input is idle.
 
     size_t processedCount = 0U;
     while (processedCount < MAX_INPUT_MESSAGES_PER_POLL && usbMIDI.read()) {
@@ -131,10 +183,42 @@ void UsbMidi::serviceOutput() {
 }
 
 void UsbMidi::serviceOutput(uint32_t budgetUs) {
-    // One consumer for now. The SDK's DMA scheduler briefly masks/unmasks all
-    // interrupts, so entering it with PRIMASK set would violate the caller's lock.
-    if (!initialized_ || readIpsr() != 0U || readPrimask() != 0U) return;
+    if (!initialized_) return;
+    // Compatibility polling only requests service. It never becomes another
+    // consumer, and cannot impose an unbounded budget on the IRQ owner.
+    {
+        InterruptGuard lock;
+        if (budgetUs && (output_session_ != oc_usb_midi_session() ||
+            (!output_blocked_ && (output_queue_count_ || panic_requested_ || panic_pending_))))
+            requestOutput_();
+    }
+    if (readIpsr() == 0U) reportOutputRejections_();
+}
+
+void UsbMidi::processOutputInterrupt_() {
+    if (!initialized_ || readPrimask() != 0U) return;
+#if OC_ENABLE_STATS
+    const uint32_t irqStartUs = micros();
+    uint32_t wakeAge = 0;
+    {
+        InterruptGuard lock;
+        if (output_wake_pending_) wakeAge = irqStartUs - output_wake_us_;
+        output_wake_pending_ = false;
+    }
+    OC_PERF_RECORD("midi.usb-wake-age", wakeAge, 0U, 0U);
+#endif
+    output_servicing_ = true;
+    output_blocked_ = false;
     reconcileOutputSession_();
+    {
+        InterruptGuard lock;
+        if (panic_requested_) {
+            clearOutputQueue_();
+            panic_requested_ = false;
+            panic_pending_ = true;
+            panic_word_ = 0;
+        }
+    }
 #if OC_ENABLE_STATS
     const uint32_t now = micros();
     uint32_t pending = 0U;
@@ -152,8 +236,18 @@ void UsbMidi::serviceOutput(uint32_t budgetUs) {
     output_service_seen_ = true;
     last_output_service_us_ = now;
 #endif
-    drainOutputQueue_(budgetUs);
-    reportOutputRejections_();
+    drainOutputQueue_(OUTPUT_IRQ_BUDGET_US);
+    {
+        InterruptGuard lock;
+        output_servicing_ = false;
+        // Busy/offline waits for DMA retirement or configuration. Never create
+        // an interrupt retry storm while an unavailable host owns the buffers.
+        if (!output_blocked_ && (output_queue_count_ || panic_pending_ || panic_requested_))
+            requestOutput_();
+    }
+#if OC_ENABLE_STATS
+    OC_PERF_RECORD("midi.usb-output-irq", micros() - irqStartUs, 0U, 0U);
+#endif
 }
 
 MidiOutputAcceptance UsbMidi::sendCC(uint8_t channel, uint8_t cc, uint8_t value) {
@@ -184,6 +278,7 @@ MidiOutputAcceptance UsbMidi::sendSysEx(const uint8_t* data, size_t length) {
         for (size_t j = 0; j < bytes; ++j) packet |= uint32_t(data[i + j]) << (8 * (j + 1));
         appendPacket_(packet);
     }
+    if (!output_servicing_ && !output_blocked_) requestOutput_();
     return MidiOutputAcceptance::ACCEPTED;
 }
 
@@ -218,14 +313,12 @@ MidiOutputAcceptance UsbMidi::sendContinue() {
 }
 
 void UsbMidi::allNotesOff() {
-    if (!initialized_ || readIpsr() != 0U || readPrimask() != 0U) return;
+    if (!initialized_) return;
     {
         InterruptGuard lock;
-        clearOutputQueue_();
-        panic_word_ = 0;
-        panic_pending_ = true;
+        panic_requested_ = true;
+        requestOutput_();
     }
-    serviceOutput();
 }
 
 uint64_t UsbMidi::nowUs_() {
@@ -240,13 +333,14 @@ MidiOutputAcceptance UsbMidi::enqueueShortMessage_(uint8_t status, uint8_t chann
     InterruptGuard lock;
     if (!canEnqueue_(1)) return MidiOutputAcceptance::REJECTED;
     appendPacket_(shortPacket(status, channel, data1, data2));
+    if (!output_servicing_ && !output_blocked_) requestOutput_();
     return MidiOutputAcceptance::ACCEPTED;
 }
 
 // The producer holds InterruptGuard across capacity check and append(s).
 bool UsbMidi::canEnqueue_(size_t count) {
     if (!output_session_ || output_session_ != oc_usb_midi_session() ||
-        panic_pending_ || count > output_queue_.size() - output_queue_count_) {
+        panic_pending_ || panic_requested_ || count > output_queue_.size() - output_queue_count_) {
         if (rejected_output_count_ != UINT32_MAX) ++rejected_output_count_;
 #if defined(MS_STORAGE_QUALIFICATION)
         qualification::noteMidiOutputDrop();
@@ -285,10 +379,14 @@ void UsbMidi::clearOutputQueue_() {
 }
 
 void UsbMidi::drainOutputQueue_(uint32_t budgetUs) {
-    if (!budgetUs || !output_session_) return;
-    const uint32_t drainStartUs = static_cast<uint32_t>(nowUs_());
+    if (!budgetUs || !output_session_) { output_blocked_ = true; return; }
+    // Output uses the SDK's wrap-safe 32-bit clock. The extending input clock
+    // remains foreground-owned; do not share its mutable wrap state with IRQs.
+    const uint32_t drainStartUs = micros();
     uint32_t sentCount = 0;
     uint32_t attemptedCount = 0;
+    bool refilled = false;
+    bool moreDue = false;
 #if OC_ENABLE_STATS
     uint32_t ageCount = 0;
     uint32_t maxQueueAgeUs = 0;
@@ -296,10 +394,18 @@ void UsbMidi::drainOutputQueue_(uint32_t budgetUs) {
 #endif
 
     while (attemptedCount < OUTPUT_QUEUE_CAPACITY &&
-           static_cast<uint32_t>(nowUs_()) - drainStartUs < budgetUs) {
+           micros() - drainStartUs < budgetUs) {
         QueuedPacket message;
-        const bool panic = panic_pending_;
-        if (panic ? !nextPanicPacket_(message) : !peekPacket_(message)) break;
+        bool panic = panic_pending_;
+        if (panic && !nextPanicPacket_(message)) panic = false;
+        if (!panic && !peekPacket_(message)) {
+            if (!refilled && output_refill_) {
+                refilled = true;
+                moreDue = output_refill_(output_refill_context_, OUTPUT_REFILL_BUDGET_US);
+                if (peekPacket_(message)) continue;
+            }
+            break;
+        }
 #if OC_ENABLE_STATS
         const uint32_t sendStartUs = micros();
 #endif
@@ -310,6 +416,7 @@ void UsbMidi::drainOutputQueue_(uint32_t budgetUs) {
         maxSendUs = std::max(maxSendUs, admissionUs);
 #endif
         if (result != OC_USB_MIDI_ACCEPTED) {
+            output_blocked_ = true;
             if (result == OC_USB_MIDI_ERROR && output_error_count_ != UINT32_MAX) {
                 ++output_error_count_;
             }
@@ -332,8 +439,12 @@ void UsbMidi::drainOutputQueue_(uint32_t budgetUs) {
 #endif
     }
     if (sentCount) oc_usb_midi_flush(output_session_);
+    // A refill can use its budget before emptying the due source. Tail-chain
+    // another bounded service, but only after progress and never on USB busy.
+    if (!output_blocked_ && (moreDue ||
+        (attemptedCount == OUTPUT_QUEUE_CAPACITY && output_refill_))) requestOutput_();
 #if OC_ENABLE_STATS
-    const uint32_t elapsedUs = static_cast<uint32_t>(nowUs_()) - drainStartUs;
+    const uint32_t elapsedUs = micros() - drainStartUs;
     if (attemptedCount) {
         OC_PERF_RECORD("midi.usb-output-drain", elapsedUs, sentCount, budgetUs);
         OC_PERF_RECORD("midi.usb-send-max", maxSendUs, attemptedCount, 0U);
@@ -433,22 +544,24 @@ void UsbMidi::reportOutputRejections_() {
         return;
     }
 
-    uint32_t rejected = 0;
+    uint32_t rejected = 0, cancelled = 0, errors = 0;
     {
         InterruptGuard lock;
         rejected = rejected_output_count_;
         rejected_output_count_ = 0;
+        cancelled = cancelled_output_count_;
+        cancelled_output_count_ = 0;
+        errors = output_error_count_;
+        output_error_count_ = 0;
     }
     if (rejected > 0) {
         OC_PERF_RECORD("midi.usb-rejections", 0U, rejected, OUTPUT_QUEUE_CAPACITY);
         OC_LOG_WARN("UsbMidi output queue rejected {} message(s)", rejected);
     }
-    if (cancelled_output_count_ || output_error_count_) {
-        OC_PERF_RECORD("midi.usb-session-reset", 0U, cancelled_output_count_, output_error_count_);
+    if (cancelled || errors) {
+        OC_PERF_RECORD("midi.usb-session-reset", 0U, cancelled, errors);
         OC_LOG_WARN("UsbMidi session cancelled {} packet(s); DMA admission errors={}",
-                    cancelled_output_count_, output_error_count_);
-        cancelled_output_count_ = 0;
-        output_error_count_ = 0;
+                    cancelled, errors);
     }
     last_rejection_report_ms_ = nowMs;
 }

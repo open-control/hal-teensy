@@ -48,15 +48,21 @@ class SourceNode:
 
 class UsbMidiBuildHookTests(unittest.TestCase):
     def test_sdk_change_is_rejected_before_writes(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            env = BuildEnvironment(Path(tmp))
-            source = env.root / "sdk/cores/teensy4/usb_midi.c"
-            source.parent.mkdir(parents=True)
-            source.write_bytes(b"unreviewed SDK\n")
-            with self.assertRaisesRegex(RuntimeError, "needs SDK review"):
-                hook["configure"](env)
-            self.assertFalse((env.root / "build").exists())
-            self.assertEqual(source.read_bytes(), b"unreviewed SDK\n")
+        for changed in hook["SDK_SOURCES"]:
+            with self.subTest(changed=changed), tempfile.TemporaryDirectory() as tmp:
+                env = BuildEnvironment(Path(tmp))
+                source = env.root / "sdk/cores/teensy4/usb_midi.c"
+                source.parent.mkdir(parents=True)
+                digest = hashlib.sha256(b"reviewed SDK\n").hexdigest()
+                hashes = dict.fromkeys(hook["SDK_SOURCES"], digest)
+                for name in hashes:
+                    source.with_name(name).write_bytes(b"reviewed SDK\n")
+                source.with_name(changed).write_bytes(b"unreviewed SDK\n")
+                with patch.dict(hook["configure"].__globals__, SDK_SOURCES=hashes):
+                    with self.assertRaisesRegex(RuntimeError, "needs SDK review"):
+                        hook["configure"](env)
+                self.assertFalse((env.root / "build").exists())
+                self.assertEqual(source.with_name(changed).read_bytes(), b"unreviewed SDK\n")
 
     def test_only_verified_source_is_replaced_without_changing_sdk(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -64,19 +70,24 @@ class UsbMidiBuildHookTests(unittest.TestCase):
             source = env.root / "sdk/cores/teensy4/usb_midi.c"
             source.parent.mkdir(parents=True)
             source.write_bytes(b"reviewed SDK\r\n")
+            source.with_name("usb.c").write_bytes(b"reviewed SDK\r\n")
             digest = hashlib.sha256(b"reviewed SDK\n").hexdigest()
-            with patch.dict(hook["configure"].__globals__, SDK_SHA256=digest):
+            hashes = dict.fromkeys(hook["SDK_SOURCES"], digest)
+            with patch.dict(hook["configure"].__globals__, SDK_SOURCES=hashes):
                 hook["configure"](env)
                 wrapper = env.root / "build/oc_usb_midi_sdk.c"
                 stamp = wrapper.stat().st_mtime_ns
                 hook["configure"](env)
             self.assertEqual(wrapper.stat().st_mtime_ns, stamp)
             self.assertEqual(source.read_bytes(), b"reviewed SDK\r\n")
+            self.assertEqual(source.with_name("usb.c").read_bytes(), b"reviewed SDK\r\n")
             self.assertEqual(env.middleware(env, SourceNode(source)), wrapper)
             other = SourceNode(env.root / "other/usb_midi.c")
             self.assertIs(env.middleware(env, other), other)
             text = wrapper.read_text()
             self.assertIn("#define usb_midi_configure oc_usb_midi_sdk_configure", text)
+            self.assertIn("#define usb_midi_flush_output oc_usb_midi_sdk_flush_output", text)
+            self.assertIn("#undef usb_midi_flush_output", text)
             self.assertIn(source.as_posix(), text)
             self.assertIn("UsbMidiTx.inc", text)
 

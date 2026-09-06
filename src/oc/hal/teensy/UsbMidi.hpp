@@ -25,9 +25,13 @@ public:
     // Complete F0...F7 messages are copied atomically into the same packet FIFO.
     static constexpr size_t MAX_SYSEX_BYTES = OUTPUT_QUEUE_CAPACITY * 3;
     static constexpr uint32_t DEFAULT_OUTPUT_DRAIN_BUDGET_US = 500;
+    // Below the musical timer/USB (128), above display DMA (160).
+    static constexpr uint8_t OUTPUT_IRQ_PRIORITY = 144;
+    static constexpr uint32_t OUTPUT_IRQ_BUDGET_US = 250;
+    static constexpr uint32_t OUTPUT_REFILL_BUDGET_US = 40;
 
     UsbMidi() = default;
-    ~UsbMidi() override = default;
+    ~UsbMidi() override;
 
     UsbMidi(const UsbMidi&) = delete;
     UsbMidi& operator=(const UsbMidi&) = delete;
@@ -37,6 +41,7 @@ public:
     void pollInput() override;
     void serviceOutput() override;
     void serviceOutput(uint32_t budgetUs) override;
+    void setOutputRefill(OutputRefill callback, void* context) override;
 
     interface::MidiOutputAcceptance sendCC(uint8_t channel, uint8_t cc, uint8_t value) override;
     interface::MidiOutputAcceptance sendNoteOn(uint8_t channel, uint8_t note, uint8_t velocity) override;
@@ -83,6 +88,8 @@ private:
     bool peekPacket_(QueuedPacket& packet);
     void clearOutputQueue_();
     void drainOutputQueue_(uint32_t budgetUs);
+    void processOutputInterrupt_();
+    static void requestOutput_();
     void reconcileOutputSession_();
     bool nextPanicPacket_(QueuedPacket& packet);
     void acknowledgePacket_(uint32_t packet);
@@ -108,6 +115,8 @@ private:
     size_t output_queue_high_water_ = 0;
     uint32_t last_output_service_us_ = 0;
     bool output_service_seen_ = false;
+    uint32_t output_wake_us_ = 0;
+    bool output_wake_pending_ = false;
 #endif
     uint32_t input_budget_hit_count_ = 0;
     uint32_t last_input_budget_report_ms_ = 0;
@@ -116,8 +125,14 @@ private:
     uint32_t output_session_ = 0;
     uint32_t cancelled_output_count_ = 0;
     uint32_t output_error_count_ = 0;
+    OutputRefill output_refill_ = nullptr;
+    void* output_refill_context_ = nullptr;
+    inline static UsbMidi* output_owner_ = nullptr;
     uint8_t panic_word_ = 0;
     bool panic_pending_ = false;
+    bool panic_requested_ = false;
+    bool output_blocked_ = false;
+    bool output_servicing_ = false;
     bool sysex_open_ = false;
     bool initialized_ = false;
     HighResolutionClock clock_{};
