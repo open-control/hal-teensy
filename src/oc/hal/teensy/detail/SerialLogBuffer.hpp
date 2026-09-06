@@ -8,6 +8,15 @@
 
 namespace oc::hal::teensy::detail {
 
+// DTR is not a receive-readiness contract: the bridge can read with DTR low.
+// Also avoid Serial's bool conversion, which calls yield() in the Teensy SDK.
+template<typename SerialPort>
+bool tryWriteSerialLog(SerialPort& serial, bool configured,
+                       const uint8_t* data, size_t size) {
+    if (!configured || serial.availableForWrite() < static_cast<int>(size)) return false;
+    return serial.write(data, size) == size;
+}
+
 // One foreground line, not a backlog. Never send a truncated log on saturation.
 // tryWrite must admit the complete line without waiting or return false.
 class SerialLogBuffer {

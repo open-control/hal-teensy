@@ -39,11 +39,8 @@ public:
         }
         buffer_.append(byte, byte == '\n' ? millis() : 0U,
             [](const uint8_t* data, size_t size) {
-                // Do not use Serial's bool conversion: it calls yield().
                 // SDK availableForWrite is the non-waiting admission contract.
-                if (!usb_configuration || !Serial.dtr() ||
-                    Serial.availableForWrite() < static_cast<int>(size)) return false;
-                return Serial.write(data, size) == size;
+                return tryWriteSerialLog(Serial, usb_configuration != 0, data, size);
             });
         return 1;
     }

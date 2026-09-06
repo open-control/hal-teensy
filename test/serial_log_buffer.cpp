@@ -3,8 +3,38 @@
 #include <cassert>
 #include <string>
 
+struct SerialPortWithoutDtr {
+    bool dtr() = delete;
+    explicit operator bool() = delete;
+    int free = 0;
+    size_t writes = 0;
+    bool disconnectDuringWrite = false;
+    std::string output;
+    int availableForWrite() const { return free; }
+    size_t write(const uint8_t* data, size_t size) {
+        assert(free >= static_cast<int>(size));
+        ++writes;
+        if (disconnectDuringWrite) return 0;
+        output.append(reinterpret_cast<const char*>(data), size);
+        return size;
+    }
+};
+
 int main() {
     using oc::hal::teensy::detail::SerialLogBuffer;
+    using oc::hal::teensy::detail::tryWriteSerialLog;
+    SerialPortWithoutDtr serial;
+    const uint8_t boot[] = "Ready\n";
+    assert(!tryWriteSerialLog(serial, true, boot, sizeof(boot) - 1));
+    assert(serial.writes == 0);
+    serial.free = sizeof(boot) - 1;
+    assert(!tryWriteSerialLog(serial, false, boot, sizeof(boot) - 1));
+    assert(serial.writes == 0);
+    assert(tryWriteSerialLog(serial, true, boot, sizeof(boot) - 1));
+    assert(serial.output == "Ready\n" && serial.writes == 1);
+    serial.disconnectDuringWrite = true;
+    assert(!tryWriteSerialLog(serial, true, boot, sizeof(boot) - 1));
+
     SerialLogBuffer buffer;
     std::string output;
     size_t capacity = 0, writes = 0, attempts = 0;
