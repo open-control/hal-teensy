@@ -22,6 +22,8 @@ public:
     // continuously producing host cannot monopolize the foreground loop.
     static constexpr size_t MAX_INPUT_MESSAGES_PER_POLL = 128U;
     static constexpr size_t OUTPUT_QUEUE_CAPACITY = 128;
+    // Complete F0...F7 messages are copied atomically into the same packet FIFO.
+    static constexpr size_t MAX_SYSEX_BYTES = OUTPUT_QUEUE_CAPACITY * 3;
     static constexpr uint32_t DEFAULT_OUTPUT_DRAIN_BUDGET_US = 500;
 
     UsbMidi() = default;
@@ -59,29 +61,13 @@ public:
     void setOnContinue(RealtimeCallback cb) override;
 
 private:
-    enum class ShortMessageType : uint8_t {
-        ControlChange,
-        NoteOn,
-        NoteOff,
-        ProgramChange,
-        PitchBend,
-        ChannelPressure,
-        Clock,
-        Start,
-        Stop,
-        Continue,
-    };
-
-    struct QueuedShortMessage {
-        ShortMessageType type = ShortMessageType::Clock;
-        uint8_t channel = 0;
-        uint8_t data1 = 0;
-        uint8_t data2 = 0;
-        int16_t signedValue = 0;
+    struct QueuedPacket {
+        uint32_t data = 0;
 #if OC_ENABLE_STATS
         uint32_t admittedUs = 0;
 #endif
     };
+    static_assert(sizeof(QueuedPacket) == sizeof(uint32_t) * (OC_ENABLE_STATS ? 2 : 1));
 
     static constexpr uint8_t MIDI_CHANNEL_COUNT = 16;
     static constexpr uint8_t MIDI_NOTE_COUNT = 128;
@@ -90,16 +76,18 @@ private:
         MIDI_NOTE_COUNT / ACTIVE_NOTE_WORD_BITS;
     using ActiveNoteMask = std::array<uint32_t, ACTIVE_NOTE_WORD_COUNT>;
 
-    bool enqueueShortMessage_(ShortMessageType type, uint8_t channel, uint8_t data1, uint8_t data2);
-    bool enqueuePitchBend_(uint8_t channel, int16_t value);
-    bool tryDequeueShortMessage_(QueuedShortMessage& message);
+    interface::MidiOutputAcceptance enqueueShortMessage_(uint8_t status, uint8_t channel,
+                                                         uint8_t data1, uint8_t data2);
+    bool canEnqueue_(size_t count);
+    void appendPacket_(uint32_t data);
+    bool peekPacket_(QueuedPacket& packet);
     void clearOutputQueue_();
     void drainOutputQueue_(uint32_t budgetUs);
-    void sendShortMessage_(const QueuedShortMessage& message);
+    void reconcileOutputSession_();
+    bool nextPanicPacket_(QueuedPacket& packet);
+    void acknowledgePacket_(uint32_t packet);
     void reportInputBudgetHits_();
     void reportOutputRejections_();
-    void markNoteActive(uint8_t channel, uint8_t note);
-    void markNoteInactive(uint8_t channel, uint8_t note);
     uint64_t nowUs_();
 
     CCCallback on_cc_;
@@ -112,7 +100,7 @@ private:
     RealtimeCallback on_continue_;
 
     std::array<ActiveNoteMask, MIDI_CHANNEL_COUNT> active_notes_{};
-    std::array<QueuedShortMessage, OUTPUT_QUEUE_CAPACITY> output_queue_{};
+    std::array<QueuedPacket, OUTPUT_QUEUE_CAPACITY> output_queue_{};
     size_t output_queue_head_ = 0;
     size_t output_queue_tail_ = 0;
     size_t output_queue_count_ = 0;
@@ -125,6 +113,12 @@ private:
     uint32_t last_input_budget_report_ms_ = 0;
     volatile uint32_t rejected_output_count_ = 0;
     uint32_t last_rejection_report_ms_ = 0;
+    uint32_t output_session_ = 0;
+    uint32_t cancelled_output_count_ = 0;
+    uint32_t output_error_count_ = 0;
+    uint8_t panic_word_ = 0;
+    bool panic_pending_ = false;
+    bool sysex_open_ = false;
     bool initialized_ = false;
     HighResolutionClock clock_{};
 };

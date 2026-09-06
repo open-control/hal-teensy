@@ -80,6 +80,52 @@ constexpr std::array<oc::common::ButtonDef, 2> BUTTONS = {{
 
 ---
 
+## USB MIDI output contract
+
+`UsbMidi` owns a fixed 128-packet FIFO (512 bytes, or 1024 with admission-age
+diagnostics). All output, including SysEx and panic note-offs, passes through
+one foreground `serviceOutput()` owner. Producers can enqueue from a timer;
+servicing with global interrupts masked or from an ISR is intentionally rejected.
+
+- `ACCEPTED` means copied into the FIFO, **not received by the host**.
+- DMA busy/error keeps the head packet for the next service. There is no SDK
+  host-wait loop; one service attempts at most 128 packets within its time budget.
+  The last bounded admission/flush operation can finish after that budget.
+- SysEx must include F0/F7 and fit atomically (at most 384 bytes when empty).
+  A rejected message is not partially sent and its pointer is never retained.
+- `allNotesOff()` cancels pending output and starts bounded panic service.
+  Keep calling `serviceOutput()` until output resumes. New messages are rejected
+  during panic; active-note bits clear only after note-off admission. An already
+  started SysEx is terminated before panic note-offs.
+- USB reconfiguration cancels the old **HAL** FIFO, reports that cancellation
+  and conservatively releases previously admitted notes. Queue owners upstream
+  still need their own transport-reset policy; this is not an end-to-end session
+  guarantee. Disconnection can invalidate DMA data already accepted by USB.
+
+### SDK build integration
+
+The SDK provides no non-blocking admission result. `script/usb_midi_sdk.py` is a
+PlatformIO **PRE** hook that extends its original `usb_midi.c` in one generated
+translation unit, reusing the four DMA buffers and descriptors. No SDK package
+file is edited or copied into this repository. The hook verifies the reviewed
+Teensyduino 1.62 source hash and fails on drift; review/requalify it when upgrading
+the SDK. MTP is not qualified. Direct `usbMIDI.send*` calls must not be mixed with
+this owner.
+
+This repository's PlatformIO environments install the hook directly. Consumers
+must load it before Arduino's build (before ordinary library extra scripts).
+Core's `script/pio/teensy_usb_midi.py` installs/resolves the selected HAL with
+PlatformIO's package manager and invokes its hook, including on a fresh checkout.
+Historical release pins without the new HAL keep their pinned implementation;
+updating a pin picks up the extension automatically. Do not claim that an older
+pinned release has the new transport.
+
+This first stage does **not** isolate output from foreground UI stalls and does
+not guarantee host USB scheduling or physical MIDI jitter. A priority service
+requires separate IRQ, ownership, refill and burst-capacity qualification.
+
+---
+
 ## API Reference
 
 ### AppBuilder Methods
