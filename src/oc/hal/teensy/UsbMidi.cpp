@@ -1,6 +1,7 @@
 #include "UsbMidi.hpp"
 
 #include <Arduino.h>
+#include <algorithm>
 
 #include <oc/diagnostics/Performance.hpp>
 #include <oc/log/Log.hpp>
@@ -137,6 +138,23 @@ void UsbMidi::serviceOutput(uint32_t budgetUs) {
     // Teensy USB MIDI may wait for the host for up to 40 ms. Physical output
     // therefore belongs exclusively to the foreground loop, never an ISR.
     if (!initialized_ || readIpsr() != 0U) return;
+#if OC_ENABLE_STATS
+    const uint32_t now = micros();
+    uint32_t pending = 0U;
+    uint32_t highWater = 0U;
+    {
+        InterruptLock lock;
+        pending = static_cast<uint32_t>(output_queue_count_);
+        highWater = static_cast<uint32_t>(output_queue_high_water_);
+        output_queue_high_water_ = output_queue_count_;
+    }
+    if (output_service_seen_) {
+        OC_PERF_RECORD("midi.usb-service-gap", now - last_output_service_us_,
+                       pending, highWater);
+    }
+    output_service_seen_ = true;
+    last_output_service_us_ = now;
+#endif
     drainOutputQueue_(budgetUs);
     reportOutputRejections_();
 }
@@ -273,9 +291,15 @@ bool UsbMidi::enqueueShortMessage_(ShortMessageType type,
         .channel = channel,
         .data1 = data1,
         .data2 = data2,
+#if OC_ENABLE_STATS
+        .admittedUs = micros(),
+#endif
     };
     output_queue_tail_ = (output_queue_tail_ + 1U) % output_queue_.size();
     output_queue_count_ += 1U;
+#if OC_ENABLE_STATS
+    output_queue_high_water_ = std::max(output_queue_high_water_, output_queue_count_);
+#endif
     return true;
 }
 
@@ -297,9 +321,15 @@ bool UsbMidi::enqueuePitchBend_(uint8_t channel, int16_t value) {
         .type = ShortMessageType::PitchBend,
         .channel = channel,
         .signedValue = value,
+#if OC_ENABLE_STATS
+        .admittedUs = micros(),
+#endif
     };
     output_queue_tail_ = (output_queue_tail_ + 1U) % output_queue_.size();
     output_queue_count_ += 1U;
+#if OC_ENABLE_STATS
+    output_queue_high_water_ = std::max(output_queue_high_water_, output_queue_count_);
+#endif
     return true;
 }
 
@@ -331,11 +361,18 @@ void UsbMidi::drainOutputQueue_(uint32_t budgetUs) {
     const uint32_t drainStartUs = static_cast<uint32_t>(nowUs_());
 #if OC_ENABLE_STATS
     uint32_t sentCount = 0;
+    uint32_t maxQueueAgeUs = 0;
+    uint32_t maxSendUs = 0;
 #endif
 
     do {
+#if OC_ENABLE_STATS
+        const uint32_t sendStartUs = micros();
+        maxQueueAgeUs = std::max(maxQueueAgeUs, sendStartUs - message.admittedUs);
+#endif
         sendShortMessage_(message);
 #if OC_ENABLE_STATS
+        maxSendUs = std::max(maxSendUs, micros() - sendStartUs);
         sentCount += 1U;
 #endif
 
@@ -349,6 +386,10 @@ void UsbMidi::drainOutputQueue_(uint32_t budgetUs) {
     const uint32_t elapsedUs = static_cast<uint32_t>(nowUs_()) - drainStartUs;
     if (readIpsr() == 0U) {
         OC_PERF_RECORD("midi.usb-output-drain", elapsedUs, sentCount, budgetUs);
+        // Admission age is not host receipt latency. The SDK send has no
+        // acceptance result; retain this distinction in diagnostics.
+        OC_PERF_RECORD("midi.usb-queue-age", maxQueueAgeUs, sentCount, 0U);
+        OC_PERF_RECORD("midi.usb-send-max", maxSendUs, sentCount, 0U);
     }
 #endif
 }
@@ -435,6 +476,7 @@ void UsbMidi::reportOutputRejections_() {
         rejected_output_count_ = 0;
     }
     if (rejected > 0) {
+        OC_PERF_RECORD("midi.usb-rejections", 0U, rejected, OUTPUT_QUEUE_CAPACITY);
         last_rejection_report_ms_ = nowMs;
         OC_LOG_WARN("UsbMidi output queue rejected {} message(s)", rejected);
     }

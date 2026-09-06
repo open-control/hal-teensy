@@ -5,6 +5,7 @@
 #include <array>
 
 #include <oc/type/Result.hpp>
+#include <oc/Config.hpp>
 #include <oc/interface/IMidi.hpp>
 
 #include "HighResolutionClock.hpp"
@@ -77,6 +78,9 @@ private:
         uint8_t data1 = 0;
         uint8_t data2 = 0;
         int16_t signedValue = 0;
+#if OC_ENABLE_STATS
+        uint32_t admittedUs = 0;
+#endif
     };
 
     static constexpr uint8_t MIDI_CHANNEL_COUNT = 16;
@@ -112,6 +116,11 @@ private:
     size_t output_queue_head_ = 0;
     size_t output_queue_tail_ = 0;
     size_t output_queue_count_ = 0;
+#if OC_ENABLE_STATS
+    size_t output_queue_high_water_ = 0;
+    uint32_t last_output_service_us_ = 0;
+    bool output_service_seen_ = false;
+#endif
     uint32_t input_budget_hit_count_ = 0;
     uint32_t last_input_budget_report_ms_ = 0;
     volatile uint32_t rejected_output_count_ = 0;
