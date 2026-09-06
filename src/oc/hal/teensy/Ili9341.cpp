@@ -106,6 +106,12 @@ FLASHMEM oc::type::Result<void> Ili9341::init() {
     return R::ok();
 }
 
+bool Ili9341::canAcceptFrame() const {
+    // updateRegion waits if the framebuffer is still being read by DMA.
+    // Only the foreground starts transfers, so idle remains safe until flush.
+    return initialized_ && !tft_->asyncUpdateActive();
+}
+
 void Ili9341::flush(const void* buffer, const interface::Rect& area) {
     if (!initialized_ || !buffer) return;
 
