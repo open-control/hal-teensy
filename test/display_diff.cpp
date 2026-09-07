@@ -39,24 +39,28 @@ int main() {
     // consecutive updates must reconstruct exactly the same physical pixels.
     for (int rotation = 0; rotation < 4; ++rotation) {
         for (int capacity : {32, 7680}) {
-            Frame input{}, fast{}, region{}, screen{};
-            std::array<uint8_t, 7680> storage{};
-            Diff diff(storage.data(), capacity);
-            const int width = rotation % 2 ? 320 : 240;
-            const int height = rotation % 2 ? 240 : 320;
-            for (int pass = 0; pass < 8; ++pass) {
-                if (pass % 3 != 2) {
-                    for (size_t i = 0; i < input.size(); ++i) {
-                        if (pass == 0 || i % 97 == static_cast<size_t>(pass))
-                            input[i] = static_cast<uint16_t>(i * 31 + pass * 127);
+            for (int inset : {0, 9, 27}) {
+                Frame input{}, fast{}, region{}, screen{};
+                std::array<uint8_t, 7680> storage{};
+                Diff diff(storage.data(), capacity);
+                const int width = rotation % 2 ? 320 : 240;
+                const int height = rotation % 2 ? 240 : 320;
+                for (int pass = 0; pass < 8; ++pass) {
+                    const int top = pass == 0 ? 0 : inset;
+                    const int bottom = pass == 0 ? height - 1 : height - inset - 1;
+                    if (pass % 3 != 2) {
+                        for (size_t i = top * width; i < static_cast<size_t>((bottom + 1) * width); ++i) {
+                            if (pass == 0 || i % 97 == static_cast<size_t>(pass))
+                                input[i] = static_cast<uint16_t>(i * 31 + pass * 127);
+                        }
                     }
+                    diff.computeDiff(fast.data(), input.data(), rotation, 6, true, 0);
+                    apply(diff, fast, screen);
+                    diff.computeDiff(region.data(), nullptr, input.data() + top * width,
+                        0, width - 1, top, bottom, width, rotation, 6, true, 0);
+                    assert(fast == region);
+                    assert(screen == region);
                 }
-                diff.computeDiff(fast.data(), input.data(), rotation, 6, true, 0);
-                apply(diff, fast, screen);
-                diff.computeDiff(region.data(), nullptr, input.data(),
-                    0, width - 1, 0, height - 1, width, rotation, 6, true, 0);
-                assert(fast == region);
-                assert(screen == region);
             }
         }
     }
