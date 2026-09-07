@@ -1,5 +1,7 @@
 #include "Ili9341.hpp"
 
+#include <algorithm>
+
 #include <oc/diagnostics/Performance.hpp>
 
 #if defined(MS_STORAGE_QUALIFICATION)
@@ -151,6 +153,17 @@ void Ili9341::flushRegion(
         static_cast<size_t>(area.x1);
 
     OC_PERF_SCOPE(perfFlush, "display.ili9341.flush-region");
+#if OC_ENABLE_LVGL_BENCHMARK && OC_ENABLE_STATS
+    // The driver's counters measure diff + optional copy, but exclude dummy
+    // full-copy fallback, cache cleaning and setup. Read both swapping buffers.
+    const auto diffTotalUs = [this] {
+        return (diff1_ ? statsTotal(diff1_->statsTime()) : 0U) +
+               (diff2_ ? statsTotal(diff2_->statsTime()) : 0U);
+    };
+    const uint64_t diffBefore = diffTotalUs();
+    const bool busyAtSubmit = tft_->asyncUpdateActive();
+    const uint32_t submitStartedAtUs = oc::time::micros32();
+#endif
 #if defined(MS_STORAGE_QUALIFICATION)
     qualification::displayBegin();
 #endif
@@ -171,6 +184,17 @@ void Ili9341::flushRegion(
             static_cast<int>(frameStride)
         );
     }
+#if OC_ENABLE_LVGL_BENCHMARK && OC_ENABLE_STATS
+    const uint32_t submitUs = oc::time::micros32() - submitStartedAtUs;
+    const uint64_t diffAfter = diffTotalUs();
+    // StatsVar exposes avg/count, not its integer sum: rounding makes this
+    // an estimate. Clamp subtraction rather than turn rounding into overflow.
+    const uint32_t diffUs = static_cast<uint32_t>(
+        diffAfter >= diffBefore ? std::min<uint64_t>(diffAfter - diffBefore, submitUs) : 0U);
+    OC_PERF_RECORD("display.ili9341.submit-diff", diffUs, rectPixelCount(area), redrawNow);
+    OC_PERF_RECORD("display.ili9341.submit-other", submitUs - diffUs, rectPixelCount(area), redrawNow);
+    if (busyAtSubmit) OC_PERF_RECORD("display.ili9341.submit-busy", 0U, 1U, 0U);
+#endif
 #if OC_ENABLE_STATS
     uint32_t diffBytes = diff1_ ? static_cast<uint32_t>(diff1_->size()) : 0U;
     if (diff2_ && static_cast<uint32_t>(diff2_->size()) > diffBytes) {
