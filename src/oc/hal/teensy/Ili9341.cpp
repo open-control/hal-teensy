@@ -117,7 +117,7 @@ void Ili9341::flush(const void* buffer, const interface::Rect& area) {
 
     OC_PERF_SCOPE(perfFlush, "display.ili9341.flush");
     OC_PERF_UNITS(perfFlush, rectPixelCount(area), 1U);
-    // Async update - false = don't wait for redraw
+    // Preserve differential updates (false = do not force a full redraw).
 #if defined(MS_STORAGE_QUALIFICATION)
     qualification::displayBegin();
 #endif
@@ -154,15 +154,23 @@ void Ili9341::flushRegion(
 #if defined(MS_STORAGE_QUALIFICATION)
     qualification::displayBegin();
 #endif
-    tft_->updateRegion(
-        redrawNow,
-        region,
-        static_cast<int>(area.x1),
-        static_cast<int>(area.x2),
-        static_cast<int>(area.y1),
-        static_cast<int>(area.y2),
-        static_cast<int>(frameStride)
-    );
+    if (redrawNow && frameStride == config_.width &&
+        area.x1 == 0 && area.y1 == 0 &&
+        area.x2 == config_.width - 1 && area.y2 == config_.height - 1) {
+        // Use the driver's rotation-specialized diff for a complete frame.
+        // update() also handles pending regions, falling back to a full redraw.
+        tft_->update(frame, false);
+    } else {
+        tft_->updateRegion(
+            redrawNow,
+            region,
+            static_cast<int>(area.x1),
+            static_cast<int>(area.x2),
+            static_cast<int>(area.y1),
+            static_cast<int>(area.y2),
+            static_cast<int>(frameStride)
+        );
+    }
 #if OC_ENABLE_STATS
     uint32_t diffBytes = diff1_ ? static_cast<uint32_t>(diff1_->size()) : 0U;
     if (diff2_ && static_cast<uint32_t>(diff2_->size()) > diffBytes) {
