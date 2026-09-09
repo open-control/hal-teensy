@@ -139,6 +139,11 @@ public:
      * .buttons(Config::Button::BUTTONS, 10)  // Custom debounce
      * @endcode
      */
+    AppBuilder& buttons(std::unique_ptr<interface::IButton> controller) {
+        builder_.buttons(std::move(controller));
+        return *this;
+    }
+
     template <size_t N>
     AppBuilder& buttons(const std::array<embedded::ButtonDef, N>& defs,
                         uint8_t debounceMs = 5) {

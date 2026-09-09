@@ -42,6 +42,10 @@ public:
     void serviceOutput() override;
     void serviceOutput(uint32_t budgetUs) override;
     void setOutputRefill(OutputRefill callback, void* context) override;
+#if OC_ENABLE_STATS
+    // Foreground-only, cumulative since boot; includes unsupported input types.
+    static uint32_t receivedMessageCount() { return received_message_count_; }
+#endif
 
     interface::MidiOutputAcceptance sendCC(uint8_t channel, uint8_t cc, uint8_t value) override;
     interface::MidiOutputAcceptance sendNoteOn(uint8_t channel, uint8_t note, uint8_t velocity) override;
@@ -112,6 +116,7 @@ private:
     size_t output_queue_tail_ = 0;
     size_t output_queue_count_ = 0;
 #if OC_ENABLE_STATS
+    inline static uint32_t received_message_count_ = 0;
     size_t output_queue_high_water_ = 0;
     uint32_t last_output_service_us_ = 0;
     bool output_service_seen_ = false;

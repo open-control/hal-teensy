@@ -116,6 +116,9 @@ void UsbMidi::pollInput() {
     size_t processedCount = 0U;
     while (processedCount < MAX_INPUT_MESSAGES_PER_POLL && usbMIDI.read()) {
         ++processedCount;
+#if OC_ENABLE_STATS
+        if (received_message_count_ != UINT32_MAX) ++received_message_count_;
+#endif
         const uint64_t timestampUs = nowUs_();
         uint8_t type = usbMIDI.getType();
         uint8_t channel = usbMIDI.getChannel() - 1;
