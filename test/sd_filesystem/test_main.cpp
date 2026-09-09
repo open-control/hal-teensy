@@ -22,7 +22,11 @@ bool builtInSDMediaPresent() { return true; }
 
 struct Disk : FsBlockDevice {
     std::map<uint32_t, std::array<uint8_t,512>> sectors;
+    decltype(sectors) durable;
     int failRead = -1;
+    int failWrite = -1;
+    int failSync = -1;
+    int syncs = 0;
     int reads = 0;
     int writes = 0;
     int readsBeforeWrite = -1;
@@ -31,7 +35,14 @@ struct Disk : FsBlockDevice {
     uint32_t capacity = 131072;
     bool isBusy() override { return false; }
     uint32_t sectorCount() override { return capacity; }
-    bool syncDevice() override { return true; }
+    bool syncDevice() override {
+        const int call = syncs++;
+        if (call == failSync || (persistent && failSync >= 0 && call >= failSync)) {
+            failed = true; return false;
+        }
+        durable = sectors;
+        return true;
+    }
     bool readSector(uint32_t sector, uint8_t* data) override {
         const int call = reads++;
         if (call == failRead || (persistent && failRead >= 0 && call >= failRead)) {
@@ -48,7 +59,11 @@ struct Disk : FsBlockDevice {
         return true;
     }
     bool writeSector(uint32_t sector, const uint8_t* data) override {
-        if (writes++ == 0) readsBeforeWrite = reads;
+        const int call = writes++;
+        if (call == 0) readsBeforeWrite = reads;
+        if (call == failWrite || (persistent && failWrite >= 0 && call >= failWrite)) {
+            failed = true; return false;
+        }
         assert(sector < sectorCount());
         std::memcpy(sectors[sector].data(),data,512); return true;
     }
@@ -56,7 +71,10 @@ struct Disk : FsBlockDevice {
         for (size_t i=0; i<count; ++i) if (!writeSector(sector+i,data+i*512)) return false;
         return true;
     }
-    void arm(int read) { reads=0; writes=0; readsBeforeWrite=-1; failed=false; failRead=read; }
+    void arm(int read) {
+        reads=0; writes=0; syncs=0; readsBeforeWrite=-1; failed=false;
+        failRead=read; failWrite=-1; failSync=-1;
+    }
 };
 
 using oc::hal::teensy::SDFileSystemBackend;
@@ -66,6 +84,7 @@ int main() {
     int masked = 0;
     int injected = 0;
     int recovered = 0;
+    int durabilityCuts = 0;
     void* desired = reinterpret_cast<void*>(uintptr_t{0x70000000});
 #ifdef _WIN32
     auto* psram = static_cast<uint8_t*>(VirtualAlloc(desired,4096,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
@@ -100,6 +119,7 @@ int main() {
             disk.arm(-1);
             SD.sdfs.end();
             disk.sectors = pristine;
+            disk.durable = pristine;
             assert(SD.sdfs.begin(&disk));
         };
         auto probe = [&](int operation) {
@@ -214,6 +234,68 @@ int main() {
         assert(fs.finishWrite());
         assert(fs.flush("/new/deep/stream.bin"));
         assert(fs.remove("/new",oc::interface::RemoveMode::RECURSIVE));
+        // A successful result must survive loss of all device and filesystem caches.
+        // Verify the durable image before abort/destructors can retry a failed sync.
+        std::array<uint8_t,1536> replacement;
+        replacement.fill(0xA7);
+        for (int operation=0; operation<7; ++operation) {
+            const bool stream = operation >= 3;
+            const size_t length = operation == 3 ? 0 : operation == 4 ? 1
+                : operation == 5 ? 513 : replacement.size();
+            const char* path = operation == 1 ? "/one/two/new.bin" : "/one/two/data.bin";
+            auto prepare = [&] {
+                remount(); disk.persistent=false;
+                if (stream) {
+                    assert(fs.beginWrite(path,length));
+                    std::memcpy(psram,replacement.data(),length);
+                    assert(fs.appendWrite(psram,length));
+                }
+                disk.arm(-1);
+            };
+            auto perform = [&] {
+                if (stream) return bool(fs.finishWrite());
+                if (operation == 2) return bool(fs.flush(path));
+                return bool(fs.write(path,0,replacement.data(),length));
+            };
+            auto verifyReboot = [&] {
+                const auto persisted = disk.durable;
+                disk.arm(-1); disk.persistent=false;
+                fs.abortWrite(); SD.sdfs.end();
+                disk.sectors = persisted;
+                assert(SD.sdfs.begin(&disk));
+                std::array<uint8_t,1536> output{};
+                const auto read = fs.read(path,0,output.data(),output.size());
+                const auto& expected = operation == 2 ? data : replacement;
+                assert(fs.stat(path).value().sizeBytes == length);
+                assert(read && read.value() == length);
+                assert(std::memcmp(output.data(),expected.data(),length) == 0);
+            };
+            prepare(); assert(perform());
+            const int syncCalls = disk.syncs, writeCalls = disk.writes;
+            const auto expectedImage = disk.durable;
+            verifyReboot();
+            std::cout << "durability format=" << format << " op=" << operation
+                      << " writes=" << writeCalls << " syncs=" << syncCalls << '\n';
+            for (bool sync : {false,true}) for (bool persistent : {false,true}) {
+                for (int cut=0; cut<(sync ? syncCalls : writeCalls); ++cut) {
+                    prepare(); disk.persistent=persistent;
+                    if (sync) disk.failSync=cut; else disk.failWrite=cut;
+                    const bool success = perform();
+                    assert(disk.failed);
+                    ++durabilityCuts;
+                    // Even a clean close's last failed durability boundary must surface.
+                    if (success && ((sync && cut == syncCalls-1) || disk.durable != expectedImage)) {
+                        std::cout << "MASKED durability format=" << format << " op=" << operation
+                                  << " sync=" << sync << " cut=" << cut
+                                  << " persistent=" << persistent << '\n';
+                        ++masked;
+                    }
+                    if (stream) assert(!fs.finishWrite()); // Success and failure both end the session.
+                    if (success && disk.durable == expectedImage) verifyReboot();
+                    disk.arm(-1); disk.persistent=false; fs.abortWrite();
+                }
+            }
+        }
         SD.sdfs.end();
     }
 #ifdef _WIN32
@@ -222,6 +304,7 @@ int main() {
     assert(munmap(psram,4096) == 0);
 #endif
     std::cout << "injected failures=" << injected << " verified recoveries=" << recovered
+              << " durability cuts=" << durabilityCuts
               << " masked failures=" << masked << '\n';
     return masked ? 1 : 0;
 }

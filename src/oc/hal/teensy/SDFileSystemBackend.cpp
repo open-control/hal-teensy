@@ -440,9 +440,8 @@ FLASHMEM oc::type::Result<size_t> SDFileSystemBackend::write(
     }
 
     const size_t written = writeStable(file, data, size);
-    const bool synced = file.sync();
-    file.close();
-    if (written != size || !synced) {
+    const bool closed = file.close(); // SdFat close synchronizes and reports failure.
+    if (written != size || !closed) {
         return oc::type::Result<size_t>::err(
             {oc::type::ErrorCode::STORAGE_WRITE_FAILED, "write failed"}
         );
@@ -471,9 +470,7 @@ FLASHMEM oc::type::Result<void> SDFileSystemBackend::flush(const char* path) {
         );
     }
 
-    const bool synced = file.sync();
-    file.close();
-    if (!synced) {
+    if (!file.close()) {
         return oc::type::Result<void>::err(
             {oc::type::ErrorCode::STORAGE_WRITE_FAILED, "flush failed"}
         );
@@ -656,10 +653,9 @@ FLASHMEM oc::type::Result<void> SDFileSystemBackend::finishWrite() {
     }
 
     const bool truncated = writeStream_.truncate(writeExpectedSize_);
-    const bool synced = truncated && writeStream_.sync();
-    writeStream_.close();
+    const bool closed = writeStream_.close();
     resetWriteStream_();
-    if (!synced) {
+    if (!truncated || !closed) {
         OC_LOG_ERROR(
             "[SDFileSystem] finish stream failed truncate={} sdError={} sdData={}",
             truncated,
