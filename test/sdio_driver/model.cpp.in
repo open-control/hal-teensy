@@ -1,0 +1,92 @@
+#include <initializer_list>
+#include <cassert>
+#include <cstdint>
+#include <cstdio>
+#define __IMXRT1062__ 1
+#define DBG_IRQSTAT() ((void)0)
+constexpr uint32_t BUSY_TIMEOUT_MICROS=1000000;
+constexpr uint32_t SDHC_IRQSTAT_CC=1, SDHC_IRQSTAT_TC=2;
+constexpr uint32_t SDHC_IRQSTAT_CMD_ERROR=0xf0000, SDHC_IRQSTAT_ERROR=0x17f0000;
+constexpr uint32_t SDHC_PRSSTAT_CIHB=1, SDHC_XFERTYP_DPSEL=1u<<21;
+constexpr uint32_t SDHC_MIX_CTRL_MASK=0x3f, SDHC_MIX_CTRL_AC23EN=1u<<7, SDHC_MIX_CTRL_DMAEN=1;
+static volatile bool m_dmaBusy=false;
+static volatile uint32_t m_irqstat=0;
+static bool (*m_busyFcn)()=nullptr;
+static uint32_t now=0;
+static int scenario=0;
+static bool irqMasked=false;
+struct Register {
+ uint32_t value=0; bool w1c=false;
+ operator uint32_t() const { return value; }
+ Register& operator=(uint32_t v) { value=w1c ? value & ~v : v; return *this; }
+ Register& operator&=(uint32_t v) { value &= v; return *this; }
+ Register& operator|=(uint32_t v) { value |= v; return *this; }
+};
+static Register SDHC_IRQSTAT{0,true}, SDHC_PRSSTAT{}, SDHC_IRQSIGEN{}, SDHC_MIX_CTRL{}, SDHC_CMDARG{};
+static void sdIrs();
+struct CommandRegister : Register {
+ CommandRegister& operator=(uint32_t v) {
+  value=v;
+  SDHC_IRQSTAT.value|=scenario==0 ? 1 : scenario==3 ? 0 : scenario==4 ? 0x10000 : scenario==5 ? 0x200003 : 11;
+  // A completed transfer interrupts the foreground before it polls command CC.
+  if ((scenario==1 || scenario==4 || scenario==5) && !irqMasked) sdIrs();
+  return *this;
+ }
+};
+static CommandRegister SDHC_XFERTYP;
+static uint32_t micros() { now+=10;return now; }
+static void yield() {
+ // In scenario 2 the DMA IRQ is serviced only if TC remains pending.
+ if (SDHC_IRQSTAT.value & SDHC_IRQSTAT_TC) sdIrs();
+}
+static bool isBusyCommandComplete();
+static bool isBusyCommandInhibit();
+static bool waitTimeout(bool (*)());
+
+static uint32_t __get_PRIMASK() { return irqMasked; }
+static void __disable_irq() { irqMasked=true; }
+static void __enable_irq() {
+ irqMasked=false;
+ if (SDHC_IRQSTAT.value & (SDHC_IRQSTAT_TC | SDHC_IRQSTAT_ERROR)) sdIrs();
+}
+
+// Driver functions are extracted from the verified SDK source.
+@DRIVER@
+static void reset(int mode) {
+ scenario=mode;now=0;m_dmaBusy=true;m_irqstat=0;m_busyFcn=nullptr;irqMasked=false;
+ SDHC_IRQSTAT.value=0;SDHC_PRSSTAT.value=0;
+}
+int main() {
+ reset(0);assert(cardCommand(SDHC_XFERTYP_DPSEL,0));
+ for (int mode : {1,2}) {
+  reset(mode);const bool command=cardCommand(SDHC_XFERTYP_DPSEL,0);
+  const bool dma=command && waitDmaStatus();
+  std::printf("schedule=%d command=%d dma=%d elapsed=%u latched=%u busy=%d\n",mode,command,dma,now,unsigned(m_irqstat),bool(m_dmaBusy));
+#if FIXED
+  assert(command && dma && now<1000 && !m_dmaBusy);
+#else
+  assert(!dma && now>=1000000);
+#endif
+ }
+ reset(3);m_irqstat=11;SDHC_IRQSTAT.value=11;
+ const bool stale=cardCommand(SDHC_XFERTYP_DPSEL,0);
+#if FIXED
+ assert(!stale && now>=1000000);
+#else
+ assert(stale && now<1000);
+#endif
+ reset(4);assert(!cardCommand(SDHC_XFERTYP_DPSEL,0));
+ assert(m_irqstat & SDHC_IRQSTAT_CMD_ERROR);
+#if FIXED
+ assert(now<1000);
+#endif
+ reset(5);const bool command=cardCommand(SDHC_XFERTYP_DPSEL,0);
+#if FIXED
+ assert(command && !waitDmaStatus() && now<1000);
+ assert(m_irqstat & SDHC_IRQSTAT_ERROR);
+#else
+ assert(!command && now>=1000000);
+#endif
+ reset(0);irqMasked=true;assert(cardCommand(SDHC_XFERTYP_DPSEL,0));assert(irqMasked);
+ std::puts("Normal command, stale completion, command/data errors and nested IRQ mask checks passed");
+}

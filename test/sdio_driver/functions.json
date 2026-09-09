@@ -1,0 +1,10 @@
+[
+  "static void sdIrs() {",
+  "static bool cardCommand(uint32_t xfertyp, uint32_t arg) {",
+  "static bool isBusyCommandComplete() {",
+  "static bool isBusyCommandInhibit() {",
+  "static bool isBusyDMA() {",
+  "static bool yieldTimeout(bool (*fcn)()) {",
+  "static bool waitDmaStatus() {",
+  "static bool waitTimeout(bool (*fcn)()) {"
+]
