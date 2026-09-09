@@ -61,7 +61,7 @@ FLASHMEM int readStable(FsFile& file, uint8_t* data, size_t size) {
         const size_t remaining = size - total;
         const size_t chunk = remaining < sizeof(staging) ? remaining : sizeof(staging);
         const int readBytes = file.read(staging, chunk);
-        if (readBytes < 0) return total == 0U ? readBytes : static_cast<int>(total);
+        if (readBytes < 0) return readBytes;
         if (readBytes == 0) break;
 
         std::memcpy(data + total, staging, static_cast<size_t>(readBytes));
@@ -107,7 +107,7 @@ FLASHMEM oc::type::Result<interface::FileInfo> SDFileSystemBackend::stat(const c
     FsFile file = SD.sdfs.open(normalized, O_RDONLY);
     if (!file.isOpen()) {
         return oc::type::Result<interface::FileInfo>::err(
-            {oc::type::ErrorCode::RESOURCE_NOT_FOUND, "path not found"}
+            lookupError_(normalized)
         );
     }
 
@@ -137,7 +137,7 @@ FLASHMEM oc::type::Result<void> SDFileSystemBackend::list(
     FsFile directory = SD.sdfs.open(normalized, O_RDONLY);
     if (!directory.isOpen()) {
         return oc::type::Result<void>::err(
-            {oc::type::ErrorCode::RESOURCE_NOT_FOUND, "directory not found"}
+            lookupError_(normalized)
         );
     }
     if (!directory.isDir()) {
@@ -151,6 +151,10 @@ FLASHMEM oc::type::Result<void> SDFileSystemBackend::list(
     while (child.openNext(&directory, O_RDONLY)) {
         interface::DirectoryEntry entry{};
         fillEntry_(child, entry);
+        if (child.getError() || entry.name[0] == '\0') {
+            return oc::type::Result<void>::err(
+                {oc::type::ErrorCode::STORAGE_READ_FAILED, "read directory entry failed"});
+        }
         const bool shouldContinue = visitor(entry, context);
         child.close();
         if (!shouldContinue) {
@@ -158,7 +162,12 @@ FLASHMEM oc::type::Result<void> SDFileSystemBackend::list(
         }
     }
 
+    const bool readFailed = directory.getError() != 0;
     directory.close();
+    if (readFailed) {
+        return oc::type::Result<void>::err(
+            {oc::type::ErrorCode::STORAGE_READ_FAILED, "read directory failed"});
+    }
     return oc::type::Result<void>::ok();
 }
 
@@ -184,6 +193,10 @@ FLASHMEM oc::type::Result<void> SDFileSystemBackend::createDirectory(const char*
         }
         return oc::type::Result<void>::ok();
     }
+
+    const auto lookupError = lookupError_(normalized);
+    if (lookupError.code != oc::type::ErrorCode::RESOURCE_NOT_FOUND)
+        return oc::type::Result<void>::err(lookupError);
 
     if (!SD.sdfs.mkdir(normalized, true)) {
         return oc::type::Result<void>::err(
@@ -241,7 +254,7 @@ FLASHMEM oc::type::Result<void> SDFileSystemBackend::rename(
     FsFile source = SD.sdfs.open(fromNormalized, O_RDONLY);
     if (!source.isOpen()) {
         return oc::type::Result<void>::err(
-            {oc::type::ErrorCode::RESOURCE_NOT_FOUND, "source not found"}
+            lookupError_(fromNormalized)
         );
     }
     source.close();
@@ -254,6 +267,10 @@ FLASHMEM oc::type::Result<void> SDFileSystemBackend::rename(
         );
     }
 
+    const auto lookupError = lookupError_(toNormalized);
+    if (lookupError.code != oc::type::ErrorCode::RESOURCE_NOT_FOUND)
+        return oc::type::Result<void>::err(lookupError);
+
     char parent[PATH_BUFFER_SIZE] = {};
     auto parentResult = parentPath_(toNormalized, parent, sizeof(parent));
     if (!parentResult) {
@@ -263,7 +280,7 @@ FLASHMEM oc::type::Result<void> SDFileSystemBackend::rename(
     FsFile parentDirectory = SD.sdfs.open(parent, O_RDONLY);
     if (!parentDirectory.isOpen()) {
         return oc::type::Result<void>::err(
-            {oc::type::ErrorCode::RESOURCE_NOT_FOUND, "target parent not found"}
+            lookupError_(parent)
         );
     }
     const bool parentIsDirectory = parentDirectory.isDir();
@@ -304,7 +321,7 @@ FLASHMEM oc::type::Result<size_t> SDFileSystemBackend::read(
     FsFile file = SD.sdfs.open(normalized, O_RDONLY);
     if (!file.isOpen()) {
         return oc::type::Result<size_t>::err(
-            {oc::type::ErrorCode::RESOURCE_NOT_FOUND, "file not found"}
+            lookupError_(normalized)
         );
     }
     if (!file.isFile()) {
@@ -331,7 +348,7 @@ FLASHMEM oc::type::Result<size_t> SDFileSystemBackend::read(
 
     const int readBytes = readStable(file, buffer, maxRead);
     file.close();
-    if (readBytes < 0) {
+    if (readBytes < 0 || static_cast<size_t>(readBytes) != maxRead) {
         return oc::type::Result<size_t>::err(
             {oc::type::ErrorCode::STORAGE_READ_FAILED, "read failed"}
         );
@@ -372,7 +389,7 @@ FLASHMEM oc::type::Result<size_t> SDFileSystemBackend::write(
     FsFile parentDirectory = SD.sdfs.open(parent, O_RDONLY);
     if (!parentDirectory.isOpen()) {
         return oc::type::Result<size_t>::err(
-            {oc::type::ErrorCode::RESOURCE_NOT_FOUND, "parent directory not found"}
+            lookupError_(parent)
         );
     }
     const bool parentIsDirectory = parentDirectory.isDir();
@@ -394,6 +411,10 @@ FLASHMEM oc::type::Result<size_t> SDFileSystemBackend::write(
         }
         currentSize = existing.fileSize();
         existing.close();
+    } else {
+        const auto error = lookupError_(normalized);
+        if (error.code != oc::type::ErrorCode::RESOURCE_NOT_FOUND)
+            return oc::type::Result<size_t>::err(error);
     }
 
     if (offset > currentSize) {
@@ -440,7 +461,7 @@ FLASHMEM oc::type::Result<void> SDFileSystemBackend::flush(const char* path) {
     FsFile file = SD.sdfs.open(normalized, O_RDWR);
     if (!file.isOpen()) {
         return oc::type::Result<void>::err(
-            {oc::type::ErrorCode::RESOURCE_NOT_FOUND, "path not found"}
+            lookupError_(normalized)
         );
     }
     if (!file.isFile()) {
@@ -490,7 +511,7 @@ FLASHMEM oc::type::Result<void> SDFileSystemBackend::beginWrite(
     FsFile parentDirectory = SD.sdfs.open(parent, O_RDONLY);
     if (!parentDirectory.isOpen()) {
         return oc::type::Result<void>::err(
-            {oc::type::ErrorCode::RESOURCE_NOT_FOUND, "parent directory not found"}
+            lookupError_(parent)
         );
     }
     const bool parentIsDirectory = parentDirectory.isDir();
@@ -515,6 +536,10 @@ FLASHMEM oc::type::Result<void> SDFileSystemBackend::beginWrite(
                 {oc::type::ErrorCode::STORAGE_WRITE_FAILED, "replace existing file failed"}
             );
         }
+    } else {
+        const auto error = lookupError_(normalized);
+        if (error.code != oc::type::ErrorCode::RESOURCE_NOT_FOUND)
+            return oc::type::Result<void>::err(error);
     }
 
     if (!writeStream_.open(normalized, O_RDWR | O_CREAT | O_TRUNC)) {
@@ -800,6 +825,33 @@ FLASHMEM interface::FileType SDFileSystemBackend::typeOf_(const FsFile& file) {
     return interface::FileType::OTHER;
 }
 
+FLASHMEM oc::type::Error SDFileSystemBackend::lookupError_(const char* normalized) {
+    using E = oc::type::ErrorCode;
+    // FsFile discards its error state when open fails. Inspect each parent while
+    // it is still alive before reporting absence. Successful opens keep the fast
+    // SDK path; this diagnostic traversal runs only after a failed lookup.
+    FsFile parent;
+    if (!parent.openRoot(&SD.sdfs)) return {E::STORAGE_READ_FAILED, "open root failed"};
+    const char* cursor = normalized + 1;
+    while (*cursor) {
+        const char* slash = std::strchr(cursor, '/');
+        const size_t length = slash ? static_cast<size_t>(slash - cursor) : std::strlen(cursor);
+        char name[interface::FILESYSTEM_MAX_NAME_LENGTH + 1] = {};
+        std::memcpy(name, cursor, length); // normalizePath_ already bounded each segment.
+        if (!parent.isDir()) return {E::INVALID_ARGUMENT, "parent is not a directory"};
+        FsFile child;
+        if (!child.open(&parent, name, O_RDONLY)) {
+            return parent.getError() ? oc::type::Error{E::STORAGE_READ_FAILED, "read lookup failed"}
+                                     : oc::type::Error{E::RESOURCE_NOT_FOUND, "path not found"};
+        }
+        if (!slash) break;
+        parent = child;
+        cursor = slash + 1;
+    }
+    // A retry found the path: the original failure was not evidence of absence.
+    return {E::STORAGE_READ_FAILED, "path lookup failed"};
+}
+
 FLASHMEM void SDFileSystemBackend::fillInfo_(const FsFile& file, interface::FileInfo& info) {
     info.type = typeOf_(file);
     info.sizeBytes = 0;
@@ -828,7 +880,7 @@ FLASHMEM oc::type::Result<void> SDFileSystemBackend::removePath_(
     FsFile file = SD.sdfs.open(path, O_RDONLY);
     if (!file.isOpen()) {
         return oc::type::Result<void>::err(
-            {oc::type::ErrorCode::RESOURCE_NOT_FOUND, "path not found"}
+            lookupError_(path)
         );
     }
 
@@ -875,7 +927,10 @@ FLASHMEM oc::type::Result<void> SDFileSystemBackend::removePath_(
 
         FsFile child;
         if (!child.openNext(&directory, O_RDONLY)) {
+            const bool readFailed = directory.getError() != 0;
             directory.close();
+            if (readFailed) return oc::type::Result<void>::err(
+                {oc::type::ErrorCode::STORAGE_READ_FAILED, "read directory failed"});
             break;
         }
 
