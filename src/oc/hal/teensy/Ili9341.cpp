@@ -1,5 +1,7 @@
 #include "Ili9341.hpp"
 
+#include <algorithm>
+
 #include <oc/diagnostics/Performance.hpp>
 
 #if defined(MS_STORAGE_QUALIFICATION)
@@ -106,12 +108,18 @@ FLASHMEM oc::type::Result<void> Ili9341::init() {
     return R::ok();
 }
 
+bool Ili9341::canAcceptFrame() const {
+    // updateRegion waits if the framebuffer is still being read by DMA.
+    // Only the foreground starts transfers, so idle remains safe until flush.
+    return initialized_ && !tft_->asyncUpdateActive();
+}
+
 void Ili9341::flush(const void* buffer, const interface::Rect& area) {
     if (!initialized_ || !buffer) return;
 
     OC_PERF_SCOPE(perfFlush, "display.ili9341.flush");
     OC_PERF_UNITS(perfFlush, rectPixelCount(area), 1U);
-    // Async update - false = don't wait for redraw
+    // Preserve differential updates (false = do not force a full redraw).
 #if defined(MS_STORAGE_QUALIFICATION)
     qualification::displayBegin();
 #endif
@@ -145,18 +153,48 @@ void Ili9341::flushRegion(
         static_cast<size_t>(area.x1);
 
     OC_PERF_SCOPE(perfFlush, "display.ili9341.flush-region");
+#if OC_ENABLE_LVGL_BENCHMARK && OC_ENABLE_STATS
+    // The driver's counters measure diff + optional copy, but exclude dummy
+    // full-copy fallback, cache cleaning and setup. Read both swapping buffers.
+    const auto diffTotalUs = [this] {
+        return (diff1_ ? statsTotal(diff1_->statsTime()) : 0U) +
+               (diff2_ ? statsTotal(diff2_->statsTime()) : 0U);
+    };
+    const uint64_t diffBefore = diffTotalUs();
+    const bool busyAtSubmit = tft_->asyncUpdateActive();
+    const uint32_t submitStartedAtUs = oc::time::micros32();
+#endif
 #if defined(MS_STORAGE_QUALIFICATION)
     qualification::displayBegin();
 #endif
-    tft_->updateRegion(
-        redrawNow,
-        region,
-        static_cast<int>(area.x1),
-        static_cast<int>(area.x2),
-        static_cast<int>(area.y1),
-        static_cast<int>(area.y2),
-        static_cast<int>(frameStride)
-    );
+    if (redrawNow && frameStride == config_.width &&
+        area.x1 == 0 && area.y1 == 0 &&
+        area.x2 == config_.width - 1 && area.y2 == config_.height - 1) {
+        // Use the driver's rotation-specialized diff for a complete frame.
+        // update() also handles pending regions, falling back to a full redraw.
+        tft_->update(frame, false);
+    } else {
+        tft_->updateRegion(
+            redrawNow,
+            region,
+            static_cast<int>(area.x1),
+            static_cast<int>(area.x2),
+            static_cast<int>(area.y1),
+            static_cast<int>(area.y2),
+            static_cast<int>(frameStride)
+        );
+    }
+#if OC_ENABLE_LVGL_BENCHMARK && OC_ENABLE_STATS
+    const uint32_t submitUs = oc::time::micros32() - submitStartedAtUs;
+    const uint64_t diffAfter = diffTotalUs();
+    // StatsVar exposes avg/count, not its integer sum: rounding makes this
+    // an estimate. Clamp subtraction rather than turn rounding into overflow.
+    const uint32_t diffUs = static_cast<uint32_t>(
+        diffAfter >= diffBefore ? std::min<uint64_t>(diffAfter - diffBefore, submitUs) : 0U);
+    OC_PERF_RECORD("display.ili9341.submit-diff", diffUs, rectPixelCount(area), redrawNow);
+    OC_PERF_RECORD("display.ili9341.submit-other", submitUs - diffUs, rectPixelCount(area), redrawNow);
+    if (busyAtSubmit) OC_PERF_RECORD("display.ili9341.submit-busy", 0U, 1U, 0U);
+#endif
 #if OC_ENABLE_STATS
     uint32_t diffBytes = diff1_ ? static_cast<uint32_t>(diff1_->size()) : 0U;
     if (diff2_ && static_cast<uint32_t>(diff2_->size()) > diffBytes) {

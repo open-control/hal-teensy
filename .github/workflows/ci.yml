@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native_contracts:
+    name: native HAL and SDIO contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: hal-teensy
+
+      - name: Resolve framework from release dependencies
+        id: framework
+        run: |
+          python - <<'PY'
+          import configparser, os, re
+          from pathlib import Path
+          config = configparser.ConfigParser(interpolation=None)
+          config.read('hal-teensy/platformio.ini')
+          match = re.search(r'framework\.git#([0-9a-f]{40})', config['env:release']['lib_deps'])
+          if match is None:
+              raise SystemExit('Missing immutable release framework pin')
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+              output.write(f'sha={match[1]}\n')
+          PY
+
+      - uses: actions/checkout@v6
+        with:
+          repository: open-control/framework
+          ref: ${{ steps.framework.outputs.sha }}
+          path: framework
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install test tools and the qualified Teensy SDK
+        run: |
+          python -m pip install 'cmake>=3.29,<5' ninja 'platformio==6.1.18'
+          pio pkg install --global --tool 'platformio/framework-arduinoteensy@1.162.0'
+
+      - name: Test USB output and SDK build adapter
+        run: |
+          cmake -S hal-teensy -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build/native --parallel 4
+          ctest --test-dir build/native --output-on-failure
+
+      - name: Test filesystem failures and durability with real SdFat
+        run: |
+          cmake -S hal-teensy/test/sd_filesystem -B build/sd -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DOC_SDFAT_SOURCE_DIR="$HOME/.platformio/packages/framework-arduinoteensy/libraries/SdFat/src"
+          cmake --build build/sd --parallel 4
+          ctest --test-dir build/sd --output-on-failure
+
+      - name: Test SDIO interrupt ordering against original and corrected drivers
+        run: |
+          python hal-teensy/test/sdio_driver/run.py \
+            "$HOME/.platformio/packages/framework-arduinoteensy/libraries/SdFat/src/SdCard/SdioTeensy.cpp" \
+            --cxx c++ --output build/sdio

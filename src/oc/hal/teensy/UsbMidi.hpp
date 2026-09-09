@@ -5,6 +5,7 @@
 #include <array>
 
 #include <oc/type/Result.hpp>
+#include <oc/Config.hpp>
 #include <oc/interface/IMidi.hpp>
 
 #include "HighResolutionClock.hpp"
@@ -21,10 +22,16 @@ public:
     // continuously producing host cannot monopolize the foreground loop.
     static constexpr size_t MAX_INPUT_MESSAGES_PER_POLL = 128U;
     static constexpr size_t OUTPUT_QUEUE_CAPACITY = 128;
+    // Complete F0...F7 messages are copied atomically into the same packet FIFO.
+    static constexpr size_t MAX_SYSEX_BYTES = OUTPUT_QUEUE_CAPACITY * 3;
     static constexpr uint32_t DEFAULT_OUTPUT_DRAIN_BUDGET_US = 500;
+    // Below the musical timer/USB (128), above display DMA (160).
+    static constexpr uint8_t OUTPUT_IRQ_PRIORITY = 144;
+    static constexpr uint32_t OUTPUT_IRQ_BUDGET_US = 250;
+    static constexpr uint32_t OUTPUT_REFILL_BUDGET_US = 40;
 
     UsbMidi() = default;
-    ~UsbMidi() override = default;
+    ~UsbMidi() override;
 
     UsbMidi(const UsbMidi&) = delete;
     UsbMidi& operator=(const UsbMidi&) = delete;
@@ -34,6 +41,11 @@ public:
     void pollInput() override;
     void serviceOutput() override;
     void serviceOutput(uint32_t budgetUs) override;
+    void setOutputRefill(OutputRefill callback, void* context) override;
+#if OC_ENABLE_STATS
+    // Foreground-only, cumulative since boot; includes unsupported input types.
+    static uint32_t receivedMessageCount() { return received_message_count_; }
+#endif
 
     interface::MidiOutputAcceptance sendCC(uint8_t channel, uint8_t cc, uint8_t value) override;
     interface::MidiOutputAcceptance sendNoteOn(uint8_t channel, uint8_t note, uint8_t velocity) override;
@@ -58,26 +70,13 @@ public:
     void setOnContinue(RealtimeCallback cb) override;
 
 private:
-    enum class ShortMessageType : uint8_t {
-        ControlChange,
-        NoteOn,
-        NoteOff,
-        ProgramChange,
-        PitchBend,
-        ChannelPressure,
-        Clock,
-        Start,
-        Stop,
-        Continue,
+    struct QueuedPacket {
+        uint32_t data = 0;
+#if OC_ENABLE_STATS
+        uint32_t admittedUs = 0;
+#endif
     };
-
-    struct QueuedShortMessage {
-        ShortMessageType type = ShortMessageType::Clock;
-        uint8_t channel = 0;
-        uint8_t data1 = 0;
-        uint8_t data2 = 0;
-        int16_t signedValue = 0;
-    };
+    static_assert(sizeof(QueuedPacket) == sizeof(uint32_t) * (OC_ENABLE_STATS ? 2 : 1));
 
     static constexpr uint8_t MIDI_CHANNEL_COUNT = 16;
     static constexpr uint8_t MIDI_NOTE_COUNT = 128;
@@ -86,16 +85,20 @@ private:
         MIDI_NOTE_COUNT / ACTIVE_NOTE_WORD_BITS;
     using ActiveNoteMask = std::array<uint32_t, ACTIVE_NOTE_WORD_COUNT>;
 
-    bool enqueueShortMessage_(ShortMessageType type, uint8_t channel, uint8_t data1, uint8_t data2);
-    bool enqueuePitchBend_(uint8_t channel, int16_t value);
-    bool tryDequeueShortMessage_(QueuedShortMessage& message);
+    interface::MidiOutputAcceptance enqueueShortMessage_(uint8_t status, uint8_t channel,
+                                                         uint8_t data1, uint8_t data2);
+    bool canEnqueue_(size_t count);
+    void appendPacket_(uint32_t data);
+    bool peekPacket_(QueuedPacket& packet);
     void clearOutputQueue_();
     void drainOutputQueue_(uint32_t budgetUs);
-    void sendShortMessage_(const QueuedShortMessage& message);
+    void processOutputInterrupt_();
+    static void requestOutput_();
+    void reconcileOutputSession_();
+    bool nextPanicPacket_(QueuedPacket& packet);
+    void acknowledgePacket_(uint32_t packet);
     void reportInputBudgetHits_();
     void reportOutputRejections_();
-    void markNoteActive(uint8_t channel, uint8_t note);
-    void markNoteInactive(uint8_t channel, uint8_t note);
     uint64_t nowUs_();
 
     CCCallback on_cc_;
@@ -108,14 +111,34 @@ private:
     RealtimeCallback on_continue_;
 
     std::array<ActiveNoteMask, MIDI_CHANNEL_COUNT> active_notes_{};
-    std::array<QueuedShortMessage, OUTPUT_QUEUE_CAPACITY> output_queue_{};
+    std::array<QueuedPacket, OUTPUT_QUEUE_CAPACITY> output_queue_{};
     size_t output_queue_head_ = 0;
     size_t output_queue_tail_ = 0;
     size_t output_queue_count_ = 0;
+#if OC_ENABLE_STATS
+    inline static uint32_t received_message_count_ = 0;
+    size_t output_queue_high_water_ = 0;
+    uint32_t last_output_service_us_ = 0;
+    bool output_service_seen_ = false;
+    uint32_t output_wake_us_ = 0;
+    bool output_wake_pending_ = false;
+#endif
     uint32_t input_budget_hit_count_ = 0;
     uint32_t last_input_budget_report_ms_ = 0;
     volatile uint32_t rejected_output_count_ = 0;
     uint32_t last_rejection_report_ms_ = 0;
+    uint32_t output_session_ = 0;
+    uint32_t cancelled_output_count_ = 0;
+    uint32_t output_error_count_ = 0;
+    OutputRefill output_refill_ = nullptr;
+    void* output_refill_context_ = nullptr;
+    inline static UsbMidi* output_owner_ = nullptr;
+    uint8_t panic_word_ = 0;
+    bool panic_pending_ = false;
+    bool panic_requested_ = false;
+    bool output_blocked_ = false;
+    bool output_servicing_ = false;
+    bool sysex_open_ = false;
     bool initialized_ = false;
     HighResolutionClock clock_{};
 };

@@ -55,6 +55,7 @@ private:
     static bool isRoot_(const char* path);
     static oc::type::Result<void> parentPath_(const char* path, char* out, size_t outSize);
     static interface::FileType typeOf_(const FsFile& file);
+    static oc::type::Error lookupError_(const char* normalized);
     static void fillInfo_(const FsFile& file, interface::FileInfo& info);
     static void fillEntry_(FsFile& file, interface::DirectoryEntry& entry);
     oc::type::Result<void> removePath_(const char* path, bool recursive, uint8_t depth);

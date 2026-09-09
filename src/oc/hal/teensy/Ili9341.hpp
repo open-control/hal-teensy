@@ -102,6 +102,7 @@ public:
     Ili9341& operator=(const Ili9341&) = delete;
 
     oc::type::Result<void> init() override;
+    bool canAcceptFrame() const override;
     void flush(const void* buffer, const interface::Rect& area) override;
     void flushRegion(
         const void* frameBuffer,

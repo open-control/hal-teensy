@@ -19,32 +19,65 @@
  */
 
 #include <Arduino.h>
+#include <new>
 #include <oc/log/Log.hpp>
+#include "detail/SerialLogBuffer.hpp"
 
 namespace oc::hal::teensy {
+
+namespace detail {
+class SerialLogPrint final : public Print {
+public:
+    size_t write(uint8_t byte) override {
+        // Formatting in an ISR must not corrupt an in-progress foreground line
+        // or enter the USB SDK. Count rejected ISR lines at their terminator.
+        uint32_t ipsr = 0;
+        asm volatile("MRS %0, ipsr" : "=r"(ipsr));
+        if (ipsr != 0U) {
+            if (byte == '\n') buffer_.dropLine();
+            return 1;
+        }
+        buffer_.append(byte, byte == '\n' ? millis() : 0U,
+            [](const uint8_t* data, size_t size) {
+                // SDK availableForWrite is the non-waiting admission contract.
+                return tryWriteSerialLog(Serial, usb_configuration != 0, data, size);
+            });
+        return 1;
+    }
+private:
+    SerialLogBuffer buffer_;
+};
+
+inline SerialLogPrint& serialLogPrint() {
+    alignas(SerialLogPrint) DMAMEM static uint8_t storage[sizeof(SerialLogPrint)];
+    static auto* output = new (storage) SerialLogPrint;
+    return *output;
+}
+} // namespace detail
 
 /**
  * @brief Get the Serial-based log output for Teensy
  *
- * Returns a reference to a static Output instance configured
- * for Arduino Serial output.
+ * Returns a static, non-waiting USB Serial line output. Lines longer than
+ * 512 bytes or not admitted by the SDK are dropped and counted. ISR logging
+ * is also dropped; output resumes with a loss summary once the host drains.
  *
  * @return Reference to the Teensy Serial output implementation
  */
 inline const oc::log::Output& serialOutput() {
     static const oc::log::Output output = {
         // printChar
-        [](char c) { Serial.print(c); },
+        [](char c) { detail::serialLogPrint().print(c); },
         // printStr
-        [](const char* str) { Serial.print(str); },
+        [](const char* str) { detail::serialLogPrint().print(str); },
         // printInt32
-        [](int32_t value) { Serial.print(value); },
+        [](int32_t value) { detail::serialLogPrint().print(value); },
         // printUint32
-        [](uint32_t value) { Serial.print(value); },
+        [](uint32_t value) { detail::serialLogPrint().print(value); },
         // printFloat
-        [](float value) { Serial.print(value, 4); },
+        [](float value) { detail::serialLogPrint().print(value, 4); },
         // printBool
-        [](bool value) { Serial.print(value ? "true" : "false"); },
+        [](bool value) { detail::serialLogPrint().print(value ? "true" : "false"); },
         // getTimeMs
         []() -> uint32_t { return millis(); }
     };

@@ -80,6 +80,68 @@ constexpr std::array<oc::common::ButtonDef, 2> BUTTONS = {{
 
 ---
 
+## USB MIDI output contract
+
+`UsbMidi` owns a fixed 128-packet FIFO (512 bytes, or 1024 with admission-age
+diagnostics). All output, including SysEx and panic note-offs, passes through
+one software IRQ owner. Producers enqueue and wake it; `serviceOutput()` only
+requests service and reports diagnostics from the foreground.
+
+- The driver exclusively reserves `IRQ_SOFTWARE`, priority 144: below the
+  musical timer/USB (128), above display DMA (160). It uses neither a PIT timer
+  nor PendSV. A second instance fails initialization; linking SDK AudioStream
+  with this owner fails on their shared strong `software_isr` symbol.
+- Each interrupt attempts at most 128 packets with a 250 us cooperative budget.
+  The final admission/flush, interrupt preemption and refill transaction can
+  exceed that budget; this is not a hard real-time execution bound.
+- Optional `setOutputRefill()` supplies already-due upstream work after FIFO
+  space becomes available. The callback receives a 40 us cooperative budget,
+  must serialize its source and must not allocate, render or access storage.
+  It returns whether due work remains. Detach it before destroying that source.
+
+- `ACCEPTED` means copied into the FIFO, **not received by the host**.
+- DMA busy/error keeps the head packet for the next service. There is no SDK
+  host-wait loop. A busy endpoint sleeps until DMA retirement/reconfiguration
+  wakes it, rather than continuously retrying an unavailable host.
+- SysEx must include F0/F7 and fit atomically (at most 384 bytes when empty).
+  A rejected message is not partially sent and its pointer is never retained.
+- `allNotesOff()` cancels pending output and starts bounded panic service.
+  The IRQ advances panic without foreground polling. New messages are rejected
+  during panic; active-note bits clear only after note-off admission. An already
+  started SysEx is terminated before panic note-offs.
+- USB reconfiguration cancels the old **HAL** FIFO, reports that cancellation
+  and conservatively releases previously admitted notes. Queue owners upstream
+  still need their own transport-reset policy; this is not an end-to-end session
+  guarantee. Disconnection can invalidate DMA data already accepted by USB.
+
+### SDK build integration
+
+The SDK provides no non-blocking admission result. `script/usb_midi_sdk.py` is a
+PlatformIO **PRE** hook that extends its original `usb_midi.c` in one generated
+translation unit, reusing the four DMA buffers and descriptors. No SDK package
+file is edited or copied into this repository. The hook verifies the reviewed
+Teensyduino 1.62 hashes of `usb_midi.c` and `usb.c` and fails on drift; review/requalify it when upgrading
+the SDK. Completion callbacks retire descriptors before reuse; SOF and explicit
+flush share that bookkeeping. MTP is not qualified. Direct `usbMIDI.send*` calls
+must not be mixed with this owner.
+
+This repository's PlatformIO environments install the hook directly. Consumers
+must load it before Arduino's build (before ordinary library extra scripts).
+Core's `script/pio/teensy_usb_midi.py` installs/resolves the selected HAL with
+PlatformIO's package manager and invokes its hook, including on a fresh checkout.
+Historical release pins without the new HAL keep their pinned implementation;
+updating a pin picks up the extension automatically. Do not claim that an older
+pinned release has the new transport.
+
+Output service no longer depends on foreground UI progress. This alone does
+not isolate a foreground producer, incoming MIDI clock, transport transitions,
+or long interrupt-masked sections. It does not guarantee host USB scheduling or
+physical MIDI jitter. `midi.usb-queue-age` ends at SDK buffer admission;
+`midi.usb-wake-age` measures pending IRQ delay. The now event-driven
+`midi.usb-service-gap` includes idle periods and is **not** an output-delay metric.
+
+---
+
 ## API Reference
 
 ### AppBuilder Methods
