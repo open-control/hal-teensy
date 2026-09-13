@@ -90,6 +90,11 @@ public:
         if (idx >= 0) encoders_logic_[idx]->setBounds(min, max);
     }
 
+    void configureResolution(oc::type::EncoderID id, uint8_t steps, uint16_t ticksPerStep, float turns) override {
+        const int idx = findIndex(id);
+        if (idx >= 0) encoders_logic_[idx]->configureResolution(steps, ticksPerStep, turns);
+    }
+
     void setDiscreteSteps(oc::type::EncoderID id, uint8_t steps) override {
         int idx = findIndex(id);
         if (idx >= 0) encoders_logic_[idx]->setDiscreteSteps(steps);
